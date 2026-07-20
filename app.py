@@ -115,6 +115,19 @@ def load_master():
 
 
 # =============================
+# COUNTRY LIST
+# =============================
+COUNTRY_OPTIONS = [
+    "Universal",
+    "Portugal",
+    "China",
+    "Brazil",
+    "Malaysia",
+    "Indonesia"
+]
+
+
+# =============================
 # FILE HELPERS
 # =============================
 def safe_remove_file(path):
@@ -176,19 +189,32 @@ def compact_spaces(text):
     return re.sub(r"\s+", " ", str(text).upper()).strip()
 
 
-def match_date(text, selected_date):
+def build_normal_date_patterns(selected_date):
+    dt = datetime.strptime(selected_date, "%d %b %Y")
+
+    month = dt.strftime("%b").upper()
+    days = [str(dt.day), f"{dt.day:02}"]
+    years = [str(dt.year), str(dt.year)[-2:]]
+
+    return [
+        f"{day}{month}{year}"
+        for day in days
+        for year in years
+    ]
+
+
+# =============================
+# COUNTRY DATE PARSERS
+# =============================
+def match_date_standard(text, selected_date):
+    text_clean = normalize_text(text)
+    patterns = build_normal_date_patterns(selected_date)
+    return any(pattern in text_clean for pattern in patterns)
+
+
+def match_date_china(text, selected_date):
     """
-    Matches normal AIP effective dates and China-style numeric EFF timestamps.
-
-    Existing supported examples:
-        05-AUG-2026
-        05 AUG 2026
-        05AUG2026
-        05AUG26
-        5AUG2026
-        5AUG26
-
-    China supported examples:
+    China supports normal formats plus numeric EFF timestamp formats:
         EFF2608051600
         2608051600
         EFF202608051600
@@ -198,15 +224,7 @@ def match_date(text, selected_date):
 
     dt = datetime.strptime(selected_date, "%d %b %Y")
 
-    month = dt.strftime("%b").upper()
-    days = [str(dt.day), f"{dt.day:02}"]
-    years = [str(dt.year), str(dt.year)[-2:]]
-
-    normal_patterns = [
-        f"{day}{month}{year}"
-        for day in days
-        for year in years
-    ]
+    normal_patterns = build_normal_date_patterns(selected_date)
 
     china_yymmdd_time = dt.strftime("%y%m%d") + "1600"
     china_yyyymmdd_time = dt.strftime("%Y%m%d") + "1600"
@@ -223,8 +241,15 @@ def match_date(text, selected_date):
     return any(pattern in text_clean for pattern in patterns)
 
 
+def match_date_for_country(text, selected_date, country):
+    if country == "China":
+        return match_date_china(text, selected_date)
+
+    return match_date_standard(text, selected_date)
+
+
 # =============================
-# PAGE TITLE / SECTION DETECTION
+# HEADER / FOOTER EXTRACTION
 # =============================
 def get_zone_lines(page, top_limit=150, bottom_limit=120):
     """
@@ -261,14 +286,17 @@ def get_zone_lines(page, top_limit=150, bottom_limit=120):
     return [line_text for _, _, line_text in lines]
 
 
-def is_administrative_list_page(text):
+# =============================
+# ADMIN / LIST PAGE DETECTION
+# =============================
+def is_administrative_list_page(text, country):
     """
     Detects amendment cover/checklist/list pages that contain many AD references
     but are not actual airport AD content pages.
     """
     t = compact_spaces(text)
 
-    admin_markers = [
+    base_markers = [
         "DESTROY INSERT",
         "INSERT/DESTROY",
         "INSERIR/DESTRUIR",
@@ -282,50 +310,33 @@ def is_administrative_list_page(text):
         "TO BE DESTROYED"
     ]
 
-    return any(marker in t for marker in admin_markers)
-
-
-def match_airport_ad_title(line_text):
-    """
-    Root-level airport AD title resolver.
-
-    Supported airport page-title formats:
-        LPFR AD 2 - 1
-        LPFR AD 2.24.01 - 1
-        AD 2 SBCT - 10
-        AD2 SBCT - 10
-        AD 2-WMKP-1-1
-        AD 2-WBGB-8-3
-        AD2-WMKP-1-1
-        ZPPP AD2-1
-        ZPPP AD2 - 1
-    """
-    t = compact_spaces(line_text)
-
-    airport_ad_patterns = [
-        r"\bAD\s*2\s*-\s*([A-Z]{4})\s*-\s*\d+(?:\s*-\s*\d+)?\b(?!\s*[\/~])",
-        r"\bAD2\s*-\s*([A-Z]{4})\s*-\s*\d+(?:\s*-\s*\d+)?\b(?!\s*[\/~])",
-        r"\bAD\s*2\s+([A-Z]{4})\s*-\s*\d+\b(?!\s*[\/~])",
-        r"\bAD2\s+([A-Z]{4})\s*-\s*\d+\b(?!\s*[\/~])",
-        r"\b([A-Z]{4})\s+AD\s*2(?:\s*\.\s*\d+)*(?:\s*-\s*\d+)?\b(?!\s*[\/~])",
-        r"\b([A-Z]{4})\s+AD2(?:\s*-\s*\d+)?\b(?!\s*[\/~])"
+    indonesia_markers = [
+        "AD 0.4 CHECKLIST OF AIP PAGES",
+        "AIP INDONESIA VOLUME II",
+        "AIP INDONESIA VOLUME III",
+        "THE FOLLOWING PAGES THAT ARE AFFECTED BY THIS AMENDMENT"
     ]
 
-    for pattern in airport_ad_patterns:
-        match = re.search(pattern, t)
+    malaysia_markers = [
+        "CHECKLIST OF AIP PAGES",
+        "PART 3 - AERODROMES",
+        "DESTROY INSERT"
+    ]
 
-        if match:
-            return {
-                "section": "AD",
-                "major": 2,
-                "raw": match.group(0),
-                "icao": match.group(1).upper(),
-                "is_airport_ad": True
-            }
+    markers = list(base_markers)
 
-    return None
+    if country in {"Indonesia", "Universal"}:
+        markers.extend(indonesia_markers)
+
+    if country in {"Malaysia", "Universal"}:
+        markers.extend(malaysia_markers)
+
+    return any(marker in t for marker in markers)
 
 
+# =============================
+# GENERIC SECTION DETECTION
+# =============================
 def match_generic_section_title(line_text):
     """
     Detects actual generic AIP section title lines:
@@ -351,25 +362,198 @@ def match_generic_section_title(line_text):
                 "major": int(match.group(2)),
                 "raw": match.group(0),
                 "icao": None,
-                "is_airport_ad": False
+                "is_airport_ad": False,
+                "parser": "generic"
             }
 
     return None
 
 
-def extract_section_detail_from_page(page, page_text):
-    """
-    Root-level page identity detection.
+# =============================
+# COUNTRY SPECIFIC AD PARSERS
+# =============================
+def make_ad_detail(match, raw_text, parser_name):
+    return {
+        "section": "AD",
+        "major": 2,
+        "raw": raw_text,
+        "icao": match.group(1).upper(),
+        "is_airport_ad": True,
+        "parser": parser_name
+    }
 
-    Airport AD title has highest priority only on actual title/header lines.
-    Generic section titles protect checklist/list pages from being treated as AD.
-    Full-body fallback is used only for generic section detection, never for owner ICAO.
+
+def match_ad_portugal(line_text):
+    """
+    Portugal examples:
+        LPFR AD 2 - 1
+        LPBJ AD 2 - 4
+        LPFR AD 2.24.01 - 1
+    """
+    t = compact_spaces(line_text)
+
+    patterns = [
+        r"\b([A-Z]{4})\s+AD\s*2(?:\s*\.\s*\d+)*(?:\s*-\s*\d+)?\b(?!\s*[\/~])"
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, t)
+        if match:
+            return make_ad_detail(match, match.group(0), "Portugal")
+
+    return None
+
+
+def match_ad_china(line_text):
+    """
+    China examples:
+        ZPPP AD2-1
+        ZPPP AD2 - 1
+        ZPPP AD 2 - 1
+        ZPPP AD 2.24.01 - 1
+    """
+    t = compact_spaces(line_text)
+
+    patterns = [
+        r"\b([A-Z]{4})\s+AD2(?:\s*-\s*\d+)?\b(?!\s*[\/~])",
+        r"\b([A-Z]{4})\s+AD\s*2(?:\s*\.\s*\d+)*(?:\s*-\s*\d+)?\b(?!\s*[\/~])"
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, t)
+        if match:
+            return make_ad_detail(match, match.group(0), "China")
+
+    return None
+
+
+def match_ad_brazil(line_text):
+    """
+    Brazil examples:
+        AD 2 SBCT - 10
+        AD2 SBCT - 10
+    """
+    t = compact_spaces(line_text)
+
+    patterns = [
+        r"\bAD\s*2\s+([A-Z]{4})\s*-\s*\d+\b(?!\s*[\/~])",
+        r"\bAD2\s+([A-Z]{4})\s*-\s*\d+\b(?!\s*[\/~])"
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, t)
+        if match:
+            return make_ad_detail(match, match.group(0), "Brazil")
+
+    return None
+
+
+def match_ad_malaysia(line_text):
+    """
+    Malaysia examples:
+        AD 2-WMKP-1-1
+        AD 2-WBGB-8-3
+        AD2-WMKP-1-1
+    """
+    t = compact_spaces(line_text)
+
+    patterns = [
+        r"\bAD\s*2\s*-\s*([A-Z]{4})\s*-\s*\d+(?:\s*-\s*\d+)?\b(?!\s*[\/~])",
+        r"\bAD2\s*-\s*([A-Z]{4})\s*-\s*\d+(?:\s*-\s*\d+)?\b(?!\s*[\/~])"
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, t)
+        if match:
+            return make_ad_detail(match, match.group(0), "Malaysia")
+
+    return None
+
+
+def match_ad_indonesia(line_text):
+    """
+    Indonesia examples:
+        WADD AD 2 - 24
+        WADD AD 2-24
+        WADD AD 2.24-7B4
+        WADD AD 2.24-11E2
+        WALK AD 2.24-11A2
+    """
+    t = compact_spaces(line_text)
+
+    patterns = [
+        r"\b([A-Z]{4})\s+AD\s*2\s*-\s*\d+\b(?!\s*[\/~])",
+        r"\b([A-Z]{4})\s+AD\s*2(?:\s*\.\s*\d+)+(?:\s*-\s*[A-Z0-9]+)?\b(?!\s*[\/~])",
+        r"\b([A-Z]{4})\s+AD\s*2(?:\s*\.\s*\d+)*(?:\s*-\s*\d+[A-Z0-9]*)?\b(?!\s*[\/~])"
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, t)
+        if match:
+            return make_ad_detail(match, match.group(0), "Indonesia")
+
+    return None
+
+
+def match_ad_universal(line_text):
+    """
+    Universal mode combines all known country patterns.
+    Use this only when country is unknown or user intentionally selects Universal.
+    """
+    for matcher in [
+        match_ad_malaysia,
+        match_ad_brazil,
+        match_ad_indonesia,
+        match_ad_china,
+        match_ad_portugal
+    ]:
+        detail = matcher(line_text)
+        if detail:
+            detail["parser"] = "Universal-" + detail.get("parser", "unknown")
+            return detail
+
+    return None
+
+
+def match_airport_ad_title_for_country(line_text, country):
+    if country == "Portugal":
+        return match_ad_portugal(line_text)
+
+    if country == "China":
+        return match_ad_china(line_text)
+
+    if country == "Brazil":
+        return match_ad_brazil(line_text)
+
+    if country == "Malaysia":
+        return match_ad_malaysia(line_text)
+
+    if country == "Indonesia":
+        return match_ad_indonesia(line_text)
+
+    return match_ad_universal(line_text)
+
+
+# =============================
+# PAGE IDENTITY DETECTION
+# =============================
+def extract_section_detail_from_page(page, page_text, country):
+    """
+    Country-aware page identity detection.
+
+    Priority:
+    1. Airport AD title from country-specific parser.
+    2. Generic section title.
+    3. Joined header/footer title.
+    4. Full-body fallback only for generic section, never airport owner ICAO.
     """
     title_lines = get_zone_lines(page)
-    admin_page = is_administrative_list_page(page_text)
+    admin_page = is_administrative_list_page(page_text, country)
 
-    for line in title_lines[:8]:
-        airport_detail = match_airport_ad_title(line)
+    scan_lines = title_lines
+
+    for line in scan_lines:
+        airport_detail = match_airport_ad_title_for_country(line, country)
 
         if airport_detail and not admin_page:
             return airport_detail
@@ -379,9 +563,9 @@ def extract_section_detail_from_page(page, page_text):
         if generic_detail:
             return generic_detail
 
-    joined_title = compact_spaces(" ".join(title_lines[:8]))
+    joined_title = compact_spaces(" ".join(title_lines))
 
-    airport_detail = match_airport_ad_title(joined_title)
+    airport_detail = match_airport_ad_title_for_country(joined_title, country)
 
     if airport_detail and not admin_page:
         return airport_detail
@@ -408,7 +592,8 @@ def extract_section_detail_from_page(page, page_text):
                 "major": int(match.group(2)),
                 "raw": match.group(0),
                 "icao": None,
-                "is_airport_ad": False
+                "is_airport_ad": False,
+                "parser": "fallback-generic"
             }
 
     section_only_patterns = [
@@ -426,7 +611,8 @@ def extract_section_detail_from_page(page, page_text):
                 "major": None,
                 "raw": match.group(0),
                 "icao": None,
-                "is_airport_ad": False
+                "is_airport_ad": False,
+                "parser": "fallback-section-only"
             }
 
     return {
@@ -434,7 +620,8 @@ def extract_section_detail_from_page(page, page_text):
         "major": None,
         "raw": None,
         "icao": None,
-        "is_airport_ad": False
+        "is_airport_ad": False,
+        "parser": "unrecognized"
     }
 
 
@@ -459,7 +646,8 @@ def extract_section_detail(text):
                 "major": int(match.group(2)),
                 "raw": match.group(0),
                 "icao": None,
-                "is_airport_ad": False
+                "is_airport_ad": False,
+                "parser": "compat"
             }
 
     return {
@@ -467,10 +655,14 @@ def extract_section_detail(text):
         "major": None,
         "raw": None,
         "icao": None,
-        "is_airport_ad": False
+        "is_airport_ad": False,
+        "parser": "compat-unrecognized"
     }
 
 
+# =============================
+# PAGE TUPLE HELPERS
+# =============================
 def get_page_index(page_tuple):
     return page_tuple[0] if len(page_tuple) > 0 else None
 
@@ -516,9 +708,6 @@ def is_auto_removed_section(section_detail):
     return False
 
 
-# =============================
-# ICAO / AIRPORT OWNER HELPERS
-# =============================
 def get_owner_icao_from_section_detail(section_detail):
     icao = section_detail.get("icao")
 
@@ -578,7 +767,7 @@ def load_more_preview_pages():
 # =============================
 # PROCESS PDF
 # =============================
-def process_pdf(input_pdf_path, selected_date):
+def process_pdf(input_pdf_path, selected_date, country):
     doc = fitz.open(input_pdf_path)
     total_pdf_pages = len(doc)
     allowed_icaos = load_master()
@@ -587,12 +776,30 @@ def process_pdf(input_pdf_path, selected_date):
     auto_removed_pages = []
     removed_page_details = []
 
+    detected_ad_owners = set()
+    kept_ad_owners = set()
+    removed_ad_owners = set()
+    ad_detection_details = []
+
     for page_index in range(len(doc)):
         page = doc[page_index]
         text = page.get_text()
 
-        section_detail = extract_section_detail_from_page(page, text)
+        section_detail = extract_section_detail_from_page(page, text, country)
         section = section_detail["section"]
+
+        owner_icao = get_owner_icao_from_section_detail(section_detail)
+
+        if section == "AD" and section_detail.get("major") == 2 and owner_icao:
+            detected_ad_owners.add(owner_icao)
+            ad_detection_details.append(
+                {
+                    "page": page_index + 1,
+                    "icao": owner_icao,
+                    "raw": section_detail.get("raw"),
+                    "parser": section_detail.get("parser")
+                }
+            )
 
         if not section:
             removed_page_details.append(
@@ -621,7 +828,7 @@ def process_pdf(input_pdf_path, selected_date):
             )
             continue
 
-        if not match_date(text, selected_date):
+        if not match_date_for_country(text, selected_date, country):
             removed_page_details.append(
                 {
                     "page": page_index + 1,
@@ -632,62 +839,15 @@ def process_pdf(input_pdf_path, selected_date):
 
         temp_pages.append((page_index, section, section_detail))
 
-    all_icaos = set()
-    kept_icaos = set()
-    removed_icaos = set()
-
-    ad_page_icao_map = {}
-
-    for page_index, section, section_detail in temp_pages:
-        if section == "AD" and section_detail.get("major") == 2:
-            owner_icao = get_owner_icao_from_section_detail(section_detail)
-
-            if owner_icao:
-                all_icaos.add(owner_icao)
-
-                if owner_icao in allowed_icaos:
-                    kept_icaos.add(owner_icao)
-                    page_kept_icaos = {owner_icao}
-                    page_removed_icaos = set()
-                else:
-                    removed_icaos.add(owner_icao)
-                    page_kept_icaos = set()
-                    page_removed_icaos = {owner_icao}
-
-                ad_page_icao_map[page_index] = {
-                    "owner": owner_icao,
-                    "all": {owner_icao},
-                    "kept": page_kept_icaos,
-                    "removed": page_removed_icaos,
-                    "airport_specific": True
-                }
-            else:
-                ad_page_icao_map[page_index] = {
-                    "owner": None,
-                    "all": set(),
-                    "kept": set(),
-                    "removed": set(),
-                    "airport_specific": True
-                }
-
     final_pages = []
 
     for page_index, section, section_detail in temp_pages:
         major = section_detail.get("major")
 
         if section == "AD" and major == 2:
-            page_data = ad_page_icao_map.get(
-                page_index,
-                {
-                    "owner": None,
-                    "all": set(),
-                    "kept": set(),
-                    "removed": set(),
-                    "airport_specific": True
-                }
-            )
+            owner_icao = get_owner_icao_from_section_detail(section_detail)
 
-            if not page_data["owner"]:
+            if not owner_icao:
                 removed_page_details.append(
                     {
                         "page": page_index + 1,
@@ -696,7 +856,11 @@ def process_pdf(input_pdf_path, selected_date):
                 )
                 continue
 
-            if not page_data["kept"]:
+            if owner_icao in allowed_icaos:
+                kept_ad_owners.add(owner_icao)
+            else:
+                removed_ad_owners.add(owner_icao)
+
                 removed_page_details.append(
                     {
                         "page": page_index + 1,
@@ -718,11 +882,12 @@ def process_pdf(input_pdf_path, selected_date):
     return (
         total_pdf_pages,
         final_pages,
-        all_icaos,
-        kept_icaos,
-        removed_icaos,
+        detected_ad_owners,
+        kept_ad_owners,
+        removed_ad_owners,
         auto_removed_pages,
-        removed_page_details
+        removed_page_details,
+        ad_detection_details
     )
 
 
@@ -750,8 +915,9 @@ def get_selected_page_tuples(pages, selected_sections, selected_enr_majors):
     return selected_page_tuples
 
 
-def get_selection_signature(selected_sections, selected_enr_majors):
+def get_selection_signature(selected_sections, selected_enr_majors, country):
     return (
+        country,
         tuple(sorted(selected_sections)),
         tuple(sorted(selected_enr_majors))
     )
@@ -856,9 +1022,10 @@ def prepare_output_pdf(selected_page_tuples, selection_signature):
 default_state = {
     "pages": [],
     "total_pdf_pages": 0,
-    "all_icaos": set(),
+    "detected_ad_owners": set(),
     "kept": set(),
     "removed": set(),
+    "ad_detection_details": [],
     "auto_removed_pages": [],
     "removed_page_details": [],
     "preview_limit": 10,
@@ -869,7 +1036,8 @@ default_state = {
     "output_page_count": 0,
     "last_selection_signature": None,
     "selection_initialized": False,
-    "enr_subsection_keys": []
+    "enr_subsection_keys": [],
+    "processed_country": None
 }
 
 for key, value in default_state.items():
@@ -881,6 +1049,12 @@ for key, value in default_state.items():
 # UI
 # =============================
 st.title("✈️ AIP Trimmer")
+
+country = st.selectbox(
+    "Select Country / Parser Profile",
+    COUNTRY_OPTIONS,
+    index=0
+)
 
 file = st.file_uploader("Upload PDF", type=["pdf"])
 date = st.date_input("Effective Date")
@@ -916,14 +1090,16 @@ if file:
         (
             total_pdf_pages,
             pages,
-            all_icaos,
+            detected_ad_owners,
             kept,
             removed,
             auto_removed_pages,
-            removed_page_details
+            removed_page_details,
+            ad_detection_details
         ) = process_pdf(
             input_pdf_path,
-            date.strftime("%d %b %Y")
+            date.strftime("%d %b %Y"),
+            country
         )
 
         plane_box.empty()
@@ -934,11 +1110,13 @@ if file:
                 "output_pdf_path": None,
                 "output_page_count": 0,
                 "last_selection_signature": None,
+                "processed_country": country,
                 "total_pdf_pages": total_pdf_pages,
                 "pages": pages,
-                "all_icaos": all_icaos,
+                "detected_ad_owners": detected_ad_owners,
                 "kept": kept,
                 "removed": removed,
+                "ad_detection_details": ad_detection_details,
                 "auto_removed_pages": auto_removed_pages,
                 "removed_page_details": removed_page_details,
                 "processed": True
@@ -1072,7 +1250,8 @@ if st.session_state.processed:
 
     selection_signature = get_selection_signature(
         selected_sections,
-        selected_enr_majors
+        selected_enr_majors,
+        st.session_state.processed_country
     )
 
     selected_page_tuples = get_selected_page_tuples(
@@ -1162,6 +1341,25 @@ if st.session_state.processed:
             """,
             unsafe_allow_html=True
         )
+
+        st.caption(
+            f"Parser profile: {st.session_state.processed_country}"
+        )
+
+        detected_ad_owners = st.session_state.get("detected_ad_owners", set())
+        kept_ad_owners = st.session_state.get("kept", set())
+        removed_ad_owners = st.session_state.get("removed", set())
+
+        if detected_ad_owners and not kept_ad_owners:
+            st.warning(
+                "AD pages were detected, but all were removed because their ICAO codes are not in the master airport list."
+            )
+
+        if detected_ad_owners:
+            with st.expander("AD Airport Diagnostics"):
+                st.write(f"Detected AD owner ICAOs: {', '.join(sorted(detected_ad_owners))}")
+                st.write(f"Kept AD owner ICAOs: {', '.join(sorted(kept_ad_owners)) if kept_ad_owners else 'None'}")
+                st.write(f"Removed AD owner ICAOs: {', '.join(sorted(removed_ad_owners)) if removed_ad_owners else 'None'}")
 
         st.caption(
             f"Selected for output: {len(selected_page_tuples)} page(s)"

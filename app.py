@@ -115,7 +115,7 @@ def load_master():
 
 
 # =============================
-# COUNTRY / PROFILE LIST
+# COUNTRY / PARSER PROFILE LIST
 # =============================
 COUNTRY_OPTIONS = [
     "Universal",
@@ -194,6 +194,44 @@ def compact_spaces(text):
     return re.sub(r"\s+", " ", str(text).upper()).strip()
 
 
+def normalize_for_admin(text):
+    """
+    Admin/list-page normalization.
+
+    Important:
+    - Keeps enough readable text for phrase matching.
+    - Normalizes common French accents used in ASECNA docs.
+    - Does not remove all separators because phrase matching needs spaces.
+    """
+    text = str(text).upper()
+    replacements = {
+        "’": "'",
+        "´": "'",
+        "À": "A",
+        "Á": "A",
+        "Â": "A",
+        "Ä": "A",
+        "É": "E",
+        "È": "E",
+        "Ê": "E",
+        "Ë": "E",
+        "Î": "I",
+        "Ï": "I",
+        "Ô": "O",
+        "Ö": "O",
+        "Ù": "U",
+        "Û": "U",
+        "Ü": "U",
+        "Ç": "C"
+    }
+
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
 def build_normal_date_patterns(selected_date):
     dt = datetime.strptime(selected_date, "%d %b %Y")
 
@@ -212,6 +250,17 @@ def build_normal_date_patterns(selected_date):
 # COUNTRY DATE PARSERS
 # =============================
 def match_date_standard(text, selected_date):
+    """
+    Standard effective-date matcher.
+
+    Supported examples:
+        05-AUG-2026
+        05 AUG 2026
+        05AUG2026
+        05AUG26
+        5AUG2026
+        5AUG26
+    """
     text_clean = normalize_text(text)
     patterns = build_normal_date_patterns(selected_date)
     return any(pattern in text_clean for pattern in patterns)
@@ -219,11 +268,15 @@ def match_date_standard(text, selected_date):
 
 def match_date_china(text, selected_date):
     """
-    China supports normal formats plus numeric EFF timestamp formats:
+    China supports normal formats plus numeric EFF timestamp formats.
+
+    China examples:
         EFF2608051600
         2608051600
         EFF202608051600
         202608051600
+
+    The observed China timestamp time is fixed as 1600.
     """
     text_clean = normalize_text(text)
 
@@ -299,16 +352,17 @@ def is_administrative_list_page(text, country):
     Detects amendment cover/checklist/list pages that contain many AD references
     but are not actual airport AD content pages.
 
-    Important:
-    - These pages may list many ICAO codes.
-    - They must not become airport-specific AD pages.
+    Permanent rule:
+    - Do not mark a page as admin only because it contains authority name,
+      AIP name, or AMDT number.
+    - ASECNA normal content pages contain AIP ASECNA / AMDT labels on many pages.
+    - Only strong list/checklist/page-management wording should trigger admin.
     """
-    t = compact_spaces(text)
+    t = normalize_for_admin(text)
 
     base_markers = [
         "DESTROY INSERT",
         "INSERT/DESTROY",
-        "INSERIR/DESTRUIR",
         "PAGE TO BE DESTROYED",
         "PAGE TO BE INSERTED",
         "CHECKLIST OF AIP PAGES",
@@ -322,6 +376,7 @@ def is_administrative_list_page(text, country):
         "TO BE DESTROYED",
         "PAGE A SUPPRIMER",
         "PAGE A INSERER",
+        "PAGE TO BE REMOVED",
         "BULLETIN DE MISE A JOUR",
         "BULLETIN DE MISE À JOUR",
         "CHANGEMENTS DANS CET AMENDEMENT",
@@ -330,8 +385,6 @@ def is_administrative_list_page(text, country):
 
     indonesia_markers = [
         "AD 0.4 CHECKLIST OF AIP PAGES",
-        "AIP INDONESIA VOLUME II",
-        "AIP INDONESIA VOLUME III",
         "THE FOLLOWING PAGES THAT ARE AFFECTED BY THIS AMENDMENT"
     ]
 
@@ -340,19 +393,26 @@ def is_administrative_list_page(text, country):
         "DESTROY INSERT"
     ]
 
-    asecna_markers = [
-        "SERVICE DE L INFORMATION AERONAUTIQUE - ASECNA",
-        "SERVICE DE L’INFORMATION AERONAUTIQUE - A S E C N A",
-        "AIP ASECNA",
-        "AMDT 07/26",
-        "DATE PAGE A SUPPRIMER DATE PAGE A INSERER"
+    asecna_strong_markers = [
+        "DATE PAGE A SUPPRIMER DATE PAGE A INSERER",
+        "PAGE A SUPPRIMER DATE PAGE A INSERER",
+        "PAGE TO BE REMOVED PAGE TO BE INSERTED",
+        "BULLETIN DE MISE A JOUR",
+        "BULLETIN DE MISE A JOUR UPDATING BULLETIN",
+        "CHANGEMENTS DANS CET AMENDEMENT",
+        "CHANGES IN THIS AMENDMENT",
+        "GEN 0.4 LISTE DE CONTROLE MIA",
+        "GEN 0.4 LISTE DE CONTRÔLE MIA",
+        "LISTE DE CONTROLE MIA",
+        "CHECKLIST MIA"
     ]
 
-    cocesna_markers = [
-        "COCESNA",
-        "AIM COCESNA",
-        "AIP COCESNA",
-        "CENTRAL AMERICAN CORPORATION FOR AIR NAVIGATION SERVICES"
+    cocesna_strong_markers = [
+        "CHECKLIST OF AIP PAGES",
+        "PAGE TO BE REMOVED",
+        "PAGE TO BE INSERTED",
+        "AIRAC AIP AMDT",
+        "AMENDMENT CHECKLIST"
     ]
 
     markers = list(base_markers)
@@ -364,12 +424,62 @@ def is_administrative_list_page(text, country):
         markers.extend(malaysia_markers)
 
     if country in {"ASECNA", "Universal"}:
-        markers.extend(asecna_markers)
+        markers.extend(asecna_strong_markers)
 
     if country in {"COCESNA", "Universal"}:
-        markers.extend(cocesna_markers)
+        markers.extend(cocesna_strong_markers)
 
     return any(marker in t for marker in markers)
+
+
+def is_group_index_or_checklist_page(page_text, title_lines, country):
+    """
+    Extra protection for group AIP profiles.
+
+    ASECNA / COCESNA pages can list hundreds of airport AD-2 references inside
+    GEN 0.4, AD 0.6, amendment bulletin, or page-management pages.
+
+    These pages must not become airport-specific AD pages.
+
+    This function intentionally looks for strong structural indicators only.
+    It does not use authority labels like AIP ASECNA as admin triggers.
+    """
+    if country not in GROUP_PROFILES:
+        return False
+
+    full = normalize_for_admin(page_text)
+    title = normalize_for_admin(" ".join(title_lines))
+
+    strong_page_mgmt = [
+        "DATE PAGE A SUPPRIMER",
+        "PAGE A INSERER",
+        "PAGE TO BE REMOVED",
+        "PAGE TO BE INSERTED",
+        "BULLETIN DE MISE A JOUR",
+        "CHANGEMENTS DANS CET AMENDEMENT",
+        "CHANGES IN THIS AMENDMENT",
+        "CHECKLIST MIA",
+        "LISTE DE CONTROLE",
+        "LISTE DE CONTRÔLE",
+        "CHECKLIST OF AIP PAGES"
+    ]
+
+    if any(marker in full for marker in strong_page_mgmt):
+        return True
+
+    generic_index_patterns = [
+        r"\b00\s*GEN\s*0\.4\b",
+        r"\bGEN\s*0\.4\b",
+        r"\b00\s*AD\s*0\.6\b",
+        r"\bAD\s*0\.6\b",
+        r"\b00\s*ENR\s*0\.6\b",
+        r"\bENR\s*0\.6\b"
+    ]
+
+    if any(re.search(pattern, title) for pattern in generic_index_patterns):
+        return True
+
+    return False
 
 
 # =============================
@@ -408,9 +518,7 @@ def match_generic_section_title(line_text):
             }
 
     return None
-
-
-# =============================
+    # =============================
 # COUNTRY SPECIFIC AD PARSERS
 # =============================
 def make_ad_detail(match, raw_text, parser_name):
@@ -540,37 +648,47 @@ def match_ad_asecna(line_text):
     """
     ASECNA group profile.
 
-    ASECNA contains multiple countries in one AIP package.
-    It must compare airport ICAOs against the full master airport list.
+    Permanent root fix:
+    ASECNA uses multi-country prefixes and both dot/hyphen formats.
+    Do not rely on one country prefix. Extract ICAO and compare against full master list.
 
-    Supported examples from ASECNA style:
+    Supported examples:
         01 AD-2.DBBP-1
+        01 AD-2.DBBP.1
+        01-AD-2.DBBP-1
         01-AD-2.DBBP.1
         03 AD-2.FKYS.10
+        05 AD-2.FCBB.23
         05-AD-2.FCBB.23
+        05 AD-2.FCPP.5
+        05-AD-2.FCPP.5
         07 AD-2.FOGR-1
         07AD2-FOGK-IAC-RNP15
         07AD2-FOGR-IAC-RNP04-DATA
         11AD2-GQPA-IAC-RNP03
         DBBP AD 2.1
         FOGR AD 2.24
+        FCBB AD 2 - 3
     """
     t = compact_spaces(line_text)
 
     patterns = [
-        # 01 AD-2.DBBP-1 / 01-AD-2.DBBP.1 / 05-AD-2.FCBB.23
-        r"\b\d{2}\s*[- ]?\s*AD\s*-\s*2\s*[\.\-]\s*([A-Z]{4})(?:\s*[\.\-]\s*[A-Z0-9]+)+\b",
+        # 05 AD-2.FCBB.23 / 05 AD-2.FCBB-23 / 05-AD-2.FCBB.23
+        r"\b\d{2}\s*[- ]?\s*AD\s*[- ]?\s*2\s*[\.\-]\s*([A-Z]{4})(?:\s*[\.\-]\s*[A-Z0-9]+)+\b",
+
+        # 05AD-2.FCBB.23 / 05AD-2.FCBB-23
+        r"\b\d{2}\s*AD\s*[- ]?\s*2\s*[\.\-]\s*([A-Z]{4})(?:\s*[\.\-]\s*[A-Z0-9]+)+\b",
 
         # 07AD2-FOGK-IAC-RNP15 / 07AD2-FOGR-IAC-RNP04-DATA
         r"\b\d{2}\s*AD\s*2\s*-\s*([A-Z]{4})(?:\s*-\s*[A-Z0-9]+)+\b",
 
-        # 07 AD-2. FOGR / 01AD-2. /DBBP style after normalization/spaces
-        r"\b\d{2}\s*AD\s*-\s*2\s*[\.\-/ ]+\s*([A-Z]{4})\b",
+        # 07 AD-2. FOGR / 01AD-2. /DBBP style
+        r"\b\d{2}\s*[- ]?\s*AD\s*[- ]?\s*2\s*[\.\-/ ]+\s*([A-Z]{4})\b",
 
-        # DBBP AD 2.1 / FOGR AD 2.24
+        # DBBP AD 2.1 / FOGR AD 2.24 / FCBB AD 2.23
         r"\b([A-Z]{4})\s+AD\s*2(?:\s*\.\s*\d+)+(?:\s*-\s*[A-Z0-9]+)?\b",
 
-        # FOGR AD 2 - 1 fallback
+        # FCBB AD 2 - 3
         r"\b([A-Z]{4})\s+AD\s*2\s*-\s*\d+\b(?!\s*[\/~])"
     ]
 
@@ -587,8 +705,7 @@ def match_ad_cocesna(line_text):
     COCESNA group profile.
 
     COCESNA can contain combined Central American states in one publication.
-    This profile intentionally uses the full master airport list rather than a
-    single-country subset.
+    It uses full master airport list comparison.
 
     Supported likely group styles:
         MHTG AD 2 - 1
@@ -602,19 +719,10 @@ def match_ad_cocesna(line_text):
     t = compact_spaces(line_text)
 
     patterns = [
-        # ICAO-first normal style
         r"\b([A-Z]{4})\s+AD\s*2(?:\s*\.\s*\d+)*(?:\s*-\s*[A-Z0-9]+)?\b(?!\s*[\/~])",
-
-        # AD 2 MHTG - 1
         r"\bAD\s*2\s+([A-Z]{4})\s*-\s*\d+\b(?!\s*[\/~])",
-
-        # AD 2-MHTG-1 / AD-2.MHTG-1
         r"\bAD\s*[- ]?\s*2\s*[\.\-]\s*([A-Z]{4})(?:\s*[\.\-]\s*[A-Z0-9]+)+\b",
-
-        # 01 AD-2.MHTG-1
         r"\b\d{2}\s*[- ]?\s*AD\s*-\s*2\s*[\.\-]\s*([A-Z]{4})(?:\s*[\.\-]\s*[A-Z0-9]+)+\b",
-
-        # 01AD2-MHTG-IAC-RNP02
         r"\b\d{2}\s*AD\s*2\s*-\s*([A-Z]{4})(?:\s*-\s*[A-Z0-9]+)+\b"
     ]
 
@@ -681,18 +789,35 @@ def extract_section_detail_from_page(page, page_text, country):
     Country-aware page identity detection.
 
     Priority:
-    1. Airport AD title from country/profile-specific parser.
-    2. Generic section title.
-    3. Joined header/footer title.
-    4. Full-body fallback only for generic section, never airport owner ICAO.
+    1. Protect group index/checklist pages.
+    2. Airport AD title from country/profile-specific parser.
+    3. Generic section title.
+    4. Joined header/footer title.
+    5. Full-body fallback only for generic section, never airport owner ICAO.
+
+    Leakproof rule:
+    - Full page body is never used to create AD airport owner ICAO.
+    - Airport owner ICAO comes from header/footer/title-zone only.
     """
     title_lines = get_zone_lines(page)
     admin_page = is_administrative_list_page(page_text, country)
+    group_index_page = is_group_index_or_checklist_page(page_text, title_lines, country)
+
+    if group_index_page:
+        for line in title_lines:
+            generic_detail = match_generic_section_title(line)
+            if generic_detail:
+                return generic_detail
+
+        joined_title = compact_spaces(" ".join(title_lines))
+        generic_detail = match_generic_section_title(joined_title)
+        if generic_detail:
+            return generic_detail
 
     for line in title_lines:
         airport_detail = match_airport_ad_title_for_country(line, country)
 
-        if airport_detail and not admin_page:
+        if airport_detail and not admin_page and not group_index_page:
             return airport_detail
 
         generic_detail = match_generic_section_title(line)
@@ -704,7 +829,7 @@ def extract_section_detail_from_page(page, page_text, country):
 
     airport_detail = match_airport_ad_title_for_country(joined_title, country)
 
-    if airport_detail and not admin_page:
+    if airport_detail and not admin_page and not group_index_page:
         return airport_detail
 
     generic_detail = match_generic_section_title(joined_title)
@@ -1026,9 +1151,7 @@ def process_pdf(input_pdf_path, selected_date, country):
         removed_page_details,
         ad_detection_details
     )
-
-
-# =============================
+    # =============================
 # SELECTION HELPERS
 # =============================
 def get_selected_page_tuples(pages, selected_sections, selected_enr_majors):
@@ -1063,6 +1186,7 @@ def get_selection_signature(selected_sections, selected_enr_majors, country):
 def get_preview_signature(selected_preview_indexes, selection_signature):
     """
     Stable signature for preview pagination.
+
     If selected pages change, preview_limit resets to 10.
     If selected pages do not change, Load More persists.
     """
@@ -1611,3 +1735,4 @@ if st.session_state.processed:
             """,
             unsafe_allow_html=True
         )
+    

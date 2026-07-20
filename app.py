@@ -115,7 +115,7 @@ def load_master():
 
 
 # =============================
-# COUNTRY LIST
+# COUNTRY / PROFILE LIST
 # =============================
 COUNTRY_OPTIONS = [
     "Universal",
@@ -123,8 +123,13 @@ COUNTRY_OPTIONS = [
     "China",
     "Brazil",
     "Malaysia",
-    "Indonesia"
+    "Indonesia",
+    "ASECNA",
+    "COCESNA"
 ]
+
+
+GROUP_PROFILES = {"ASECNA", "COCESNA"}
 
 
 # =============================
@@ -293,6 +298,10 @@ def is_administrative_list_page(text, country):
     """
     Detects amendment cover/checklist/list pages that contain many AD references
     but are not actual airport AD content pages.
+
+    Important:
+    - These pages may list many ICAO codes.
+    - They must not become airport-specific AD pages.
     """
     t = compact_spaces(text)
 
@@ -303,11 +312,20 @@ def is_administrative_list_page(text, country):
         "PAGE TO BE DESTROYED",
         "PAGE TO BE INSERTED",
         "CHECKLIST OF AIP PAGES",
+        "CHECKLIST MIA",
+        "LISTE DE CONTROLE",
+        "LISTE DE CONTRÔLE",
         "LIST OF AERONAUTICAL CHARTS",
         "THIS AIRAC AIP AMDT",
         "CONTAINS:",
         "TO BE INSERTED",
-        "TO BE DESTROYED"
+        "TO BE DESTROYED",
+        "PAGE A SUPPRIMER",
+        "PAGE A INSERER",
+        "BULLETIN DE MISE A JOUR",
+        "BULLETIN DE MISE À JOUR",
+        "CHANGEMENTS DANS CET AMENDEMENT",
+        "CHANGES IN THIS AMENDMENT"
     ]
 
     indonesia_markers = [
@@ -318,9 +336,23 @@ def is_administrative_list_page(text, country):
     ]
 
     malaysia_markers = [
-        "CHECKLIST OF AIP PAGES",
         "PART 3 - AERODROMES",
         "DESTROY INSERT"
+    ]
+
+    asecna_markers = [
+        "SERVICE DE L INFORMATION AERONAUTIQUE - ASECNA",
+        "SERVICE DE L’INFORMATION AERONAUTIQUE - A S E C N A",
+        "AIP ASECNA",
+        "AMDT 07/26",
+        "DATE PAGE A SUPPRIMER DATE PAGE A INSERER"
+    ]
+
+    cocesna_markers = [
+        "COCESNA",
+        "AIM COCESNA",
+        "AIP COCESNA",
+        "CENTRAL AMERICAN CORPORATION FOR AIR NAVIGATION SERVICES"
     ]
 
     markers = list(base_markers)
@@ -331,6 +363,12 @@ def is_administrative_list_page(text, country):
     if country in {"Malaysia", "Universal"}:
         markers.extend(malaysia_markers)
 
+    if country in {"ASECNA", "Universal"}:
+        markers.extend(asecna_markers)
+
+    if country in {"COCESNA", "Universal"}:
+        markers.extend(cocesna_markers)
+
     return any(marker in t for marker in markers)
 
 
@@ -339,18 +377,21 @@ def is_administrative_list_page(text, country):
 # =============================
 def match_generic_section_title(line_text):
     """
-    Detects actual generic AIP section title lines:
+    Detects generic AIP section title lines:
         GEN 0.4 - 1
         ENR 1.10 - 2
         AD 0.6 - 3
         AD 1.3 - 5
+        00-GEN-0.4.1
+        07-AD-1.3.1
+        05-ENR-1.12.3
     """
     t = compact_spaces(line_text)
 
     generic_title_patterns = [
-        r"\b(GEN)\s*[\.\-]?\s*(\d+)(?:\s*[\.\-]\s*\d+)*(?:\s*-\s*\d+)?\b",
-        r"\b(ENR)\s*[\.\-]?\s*(\d+)(?:\s*[\.\-]\s*\d+)*(?:\s*-\s*\d+)?\b",
-        r"\b(AD)\s*[\.\-]?\s*(\d+)(?:\s*[\.\-]\s*\d+)*(?:\s*-\s*\d+)?\b",
+        r"\b(?:\d{2}\s*[- ]\s*)?(GEN)\s*[\.\-]?\s*(\d+)(?:\s*[\.\-]\s*\d+)*(?:\s*-\s*\d+)?\b",
+        r"\b(?:\d{2}\s*[- ]\s*)?(ENR)\s*[\.\-]?\s*(\d+)(?:\s*[\.\-]\s*\d+)*(?:\s*-\s*\d+)?\b",
+        r"\b(?:\d{2}\s*[- ]\s*)?(AD)\s*[\.\-]?\s*(\d+)(?:\s*[\.\-]\s*\d+)*(?:\s*-\s*\d+)?\b",
     ]
 
     for pattern in generic_title_patterns:
@@ -495,12 +536,104 @@ def match_ad_indonesia(line_text):
     return None
 
 
+def match_ad_asecna(line_text):
+    """
+    ASECNA group profile.
+
+    ASECNA contains multiple countries in one AIP package.
+    It must compare airport ICAOs against the full master airport list.
+
+    Supported examples from ASECNA style:
+        01 AD-2.DBBP-1
+        01-AD-2.DBBP.1
+        03 AD-2.FKYS.10
+        05-AD-2.FCBB.23
+        07 AD-2.FOGR-1
+        07AD2-FOGK-IAC-RNP15
+        07AD2-FOGR-IAC-RNP04-DATA
+        11AD2-GQPA-IAC-RNP03
+        DBBP AD 2.1
+        FOGR AD 2.24
+    """
+    t = compact_spaces(line_text)
+
+    patterns = [
+        # 01 AD-2.DBBP-1 / 01-AD-2.DBBP.1 / 05-AD-2.FCBB.23
+        r"\b\d{2}\s*[- ]?\s*AD\s*-\s*2\s*[\.\-]\s*([A-Z]{4})(?:\s*[\.\-]\s*[A-Z0-9]+)+\b",
+
+        # 07AD2-FOGK-IAC-RNP15 / 07AD2-FOGR-IAC-RNP04-DATA
+        r"\b\d{2}\s*AD\s*2\s*-\s*([A-Z]{4})(?:\s*-\s*[A-Z0-9]+)+\b",
+
+        # 07 AD-2. FOGR / 01AD-2. /DBBP style after normalization/spaces
+        r"\b\d{2}\s*AD\s*-\s*2\s*[\.\-/ ]+\s*([A-Z]{4})\b",
+
+        # DBBP AD 2.1 / FOGR AD 2.24
+        r"\b([A-Z]{4})\s+AD\s*2(?:\s*\.\s*\d+)+(?:\s*-\s*[A-Z0-9]+)?\b",
+
+        # FOGR AD 2 - 1 fallback
+        r"\b([A-Z]{4})\s+AD\s*2\s*-\s*\d+\b(?!\s*[\/~])"
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, t)
+        if match:
+            return make_ad_detail(match, match.group(0), "ASECNA")
+
+    return None
+
+
+def match_ad_cocesna(line_text):
+    """
+    COCESNA group profile.
+
+    COCESNA can contain combined Central American states in one publication.
+    This profile intentionally uses the full master airport list rather than a
+    single-country subset.
+
+    Supported likely group styles:
+        MHTG AD 2 - 1
+        MHTG AD 2.24-1
+        AD 2 MHTG - 1
+        AD 2-MHTG-1
+        AD-2.MHTG-1
+        01 AD-2.MHTG-1
+        01AD2-MHTG-IAC-RNP02
+    """
+    t = compact_spaces(line_text)
+
+    patterns = [
+        # ICAO-first normal style
+        r"\b([A-Z]{4})\s+AD\s*2(?:\s*\.\s*\d+)*(?:\s*-\s*[A-Z0-9]+)?\b(?!\s*[\/~])",
+
+        # AD 2 MHTG - 1
+        r"\bAD\s*2\s+([A-Z]{4})\s*-\s*\d+\b(?!\s*[\/~])",
+
+        # AD 2-MHTG-1 / AD-2.MHTG-1
+        r"\bAD\s*[- ]?\s*2\s*[\.\-]\s*([A-Z]{4})(?:\s*[\.\-]\s*[A-Z0-9]+)+\b",
+
+        # 01 AD-2.MHTG-1
+        r"\b\d{2}\s*[- ]?\s*AD\s*-\s*2\s*[\.\-]\s*([A-Z]{4})(?:\s*[\.\-]\s*[A-Z0-9]+)+\b",
+
+        # 01AD2-MHTG-IAC-RNP02
+        r"\b\d{2}\s*AD\s*2\s*-\s*([A-Z]{4})(?:\s*-\s*[A-Z0-9]+)+\b"
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, t)
+        if match:
+            return make_ad_detail(match, match.group(0), "COCESNA")
+
+    return None
+
+
 def match_ad_universal(line_text):
     """
-    Universal mode combines all known country patterns.
+    Universal mode combines all known country/profile patterns.
     Use this only when country is unknown or user intentionally selects Universal.
     """
     for matcher in [
+        match_ad_asecna,
+        match_ad_cocesna,
         match_ad_malaysia,
         match_ad_brazil,
         match_ad_indonesia,
@@ -531,6 +664,12 @@ def match_airport_ad_title_for_country(line_text, country):
     if country == "Indonesia":
         return match_ad_indonesia(line_text)
 
+    if country == "ASECNA":
+        return match_ad_asecna(line_text)
+
+    if country == "COCESNA":
+        return match_ad_cocesna(line_text)
+
     return match_ad_universal(line_text)
 
 
@@ -542,7 +681,7 @@ def extract_section_detail_from_page(page, page_text, country):
     Country-aware page identity detection.
 
     Priority:
-    1. Airport AD title from country-specific parser.
+    1. Airport AD title from country/profile-specific parser.
     2. Generic section title.
     3. Joined header/footer title.
     4. Full-body fallback only for generic section, never airport owner ICAO.
@@ -550,9 +689,7 @@ def extract_section_detail_from_page(page, page_text, country):
     title_lines = get_zone_lines(page)
     admin_page = is_administrative_list_page(page_text, country)
 
-    scan_lines = title_lines
-
-    for line in scan_lines:
+    for line in title_lines:
         airport_detail = match_airport_ad_title_for_country(line, country)
 
         if airport_detail and not admin_page:
@@ -578,9 +715,9 @@ def extract_section_detail_from_page(page, page_text, country):
     limited_text = compact_spaces(page_text[:1500])
 
     fallback_patterns = [
-        r"\b(GEN)\s*[\.\-]?\s*(\d+)(?:\s*[\.\-]\s*\d+)*\b",
-        r"\b(ENR)\s*[\.\-]?\s*(\d+)(?:\s*[\.\-]\s*\d+)*\b",
-        r"\b(AD)\s*[\.\-]?\s*(\d+)(?:\s*[\.\-]\s*\d+)*\b",
+        r"\b(?:\d{2}\s*[- ]\s*)?(GEN)\s*[\.\-]?\s*(\d+)(?:\s*[\.\-]\s*\d+)*\b",
+        r"\b(?:\d{2}\s*[- ]\s*)?(ENR)\s*[\.\-]?\s*(\d+)(?:\s*[\.\-]\s*\d+)*\b",
+        r"\b(?:\d{2}\s*[- ]\s*)?(AD)\s*[\.\-]?\s*(\d+)(?:\s*[\.\-]\s*\d+)*\b",
     ]
 
     for pattern in fallback_patterns:
@@ -632,9 +769,9 @@ def extract_section_detail(text):
     full_text = compact_spaces(str(text)[:1500])
 
     fallback_patterns = [
-        r"\b(GEN)\s*[\.\-]?\s*(\d+)(?:\s*[\.\-]\s*\d+)*\b",
-        r"\b(ENR)\s*[\.\-]?\s*(\d+)(?:\s*[\.\-]\s*\d+)*\b",
-        r"\b(AD)\s*[\.\-]?\s*(\d+)(?:\s*[\.\-]\s*\d+)*\b",
+        r"\b(?:\d{2}\s*[- ]\s*)?(GEN)\s*[\.\-]?\s*(\d+)(?:\s*[\.\-]\s*\d+)*\b",
+        r"\b(?:\d{2}\s*[- ]\s*)?(ENR)\s*[\.\-]?\s*(\d+)(?:\s*[\.\-]\s*\d+)*\b",
+        r"\b(?:\d{2}\s*[- ]\s*)?(AD)\s*[\.\-]?\s*(\d+)(?:\s*[\.\-]\s*\d+)*\b",
     ]
 
     for pattern in fallback_patterns:
@@ -1171,6 +1308,7 @@ if st.session_state.processed:
 
         for major in present_enr_majors:
             key = f"toggle_ENR_{major}"
+
             if key not in st.session_state:
                 st.session_state[key] = True
 
@@ -1350,6 +1488,11 @@ if st.session_state.processed:
         kept_ad_owners = st.session_state.get("kept", set())
         removed_ad_owners = st.session_state.get("removed", set())
 
+        if st.session_state.processed_country in GROUP_PROFILES:
+            st.info(
+                "Group profile active: this parser checks all detected airport ICAOs against the full master airport list."
+            )
+
         if detected_ad_owners and not kept_ad_owners:
             st.warning(
                 "AD pages were detected, but all were removed because their ICAO codes are not in the master airport list."
@@ -1357,9 +1500,24 @@ if st.session_state.processed:
 
         if detected_ad_owners:
             with st.expander("AD Airport Diagnostics"):
-                st.write(f"Detected AD owner ICAOs: {', '.join(sorted(detected_ad_owners))}")
-                st.write(f"Kept AD owner ICAOs: {', '.join(sorted(kept_ad_owners)) if kept_ad_owners else 'None'}")
-                st.write(f"Removed AD owner ICAOs: {', '.join(sorted(removed_ad_owners)) if removed_ad_owners else 'None'}")
+                st.write(
+                    f"Detected AD owner ICAOs: {', '.join(sorted(detected_ad_owners))}"
+                )
+                st.write(
+                    f"Kept AD owner ICAOs: {', '.join(sorted(kept_ad_owners)) if kept_ad_owners else 'None'}"
+                )
+                st.write(
+                    f"Removed AD owner ICAOs: {', '.join(sorted(removed_ad_owners)) if removed_ad_owners else 'None'}"
+                )
+
+                details = st.session_state.get("ad_detection_details", [])
+
+                if details:
+                    st.markdown("#### First detected AD titles")
+                    for item in details[:25]:
+                        st.write(
+                            f"Page {item['page']}: {item['icao']} | {item['raw']} | {item['parser']}"
+                        )
 
         st.caption(
             f"Selected for output: {len(selected_page_tuples)} page(s)"
@@ -1415,12 +1573,14 @@ if st.session_state.processed:
                 category = item[0]
 
                 match = re.match(r"^(GEN|ENR|AD)\s+(\d+)$", category)
+
                 if match:
                     section_order = {
                         "GEN": 1,
                         "ENR": 2,
                         "AD": 3
                     }
+
                     return (
                         section_order.get(match.group(1), 9),
                         int(match.group(2)),

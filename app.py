@@ -124,6 +124,7 @@ COUNTRY_OPTIONS = [
     "Brazil",
     "Malaysia",
     "Indonesia",
+    "Chile",
     "ASECNA",
     "COCESNA"
 ]
@@ -876,6 +877,23 @@ def extract_section_detail_from_page(page, page_text, country):
                 "is_airport_ad": False,
                 "parser": "fallback-section-only"
             }
+			
+# Chile AD3 fallback
+
+if country == "Chile":
+
+    chile_text = compact_spaces(page_text[:2000])
+
+    if re.search(r"\bAD\s*3\b", chile_text):
+
+        return*{
+            "section": "AD",
+   *        "major": 3,
+            "r*w": "AD 3",
+            "icao": No*e,
+            "is_airport_ad": Fa*se,
+            "parser": "Chile-A*3"
+        }
 
     return {
         "section": None,
@@ -977,6 +995,32 @@ def get_owner_icao_from_section_detail(section_detail):
         return str(icao).strip().upper()
 
     return None
+    # =============================
+# CHILE AD3 SUPPORT
+# =============================
+
+def chile_ad3_matches_master_airports(page_text, allowed_icaos):
+    """
+    Chile AD3 pages may contain multiple airports on a single page.
+
+    Keep page if ANY master-airport ICAO appears
+    anywhere in the page text.
+
+    Remove page only when NONE match.
+    """
+
+    if not page_text:
+        return set()
+
+    page_upper = str(page_text).upper()
+
+    matches = {
+        icao
+        for icao in allowed_icaos
+        if icao and icao in page_upper
+    }
+
+    return matches
 
 
 # =============================
@@ -1103,20 +1147,79 @@ def process_pdf(input_pdf_path, selected_date, country):
 
     final_pages = []
 
-    for page_index, section, section_detail in temp_pages:
-        major = section_detail.get("major")
+for page_index, section, section_detail in temp_pages:
 
-        if section == "AD" and major == 2:
-            owner_icao = get_owner_icao_from_section_detail(section_detail)
+    major = section_detail.get("major")
 
-            if not owner_icao:
-                removed_page_details.append(
-                    {
-                        "page": page_index + 1,
-                        "category": get_clean_removed_category(section_detail)
-                    }
-                )
-                continue
+    # ==================================================
+    # CHILE SPECIAL HANDLING
+    # AD 3 pages may contain multiple airports
+    # on one horizontal page.
+    # ==================================================
+
+    if country == "Chile" and section == "AD" and major == 3:
+
+        page = doc[page_index]
+        page_text = page.get_text()
+
+        matched_icaos = chile_ad3_matches_master_airports(
+            page_text,
+            allowed_icaos
+        )
+
+        if matched_icaos:
+
+            kept_ad_owners.update(matched_icaos)
+
+            ad_detection_details.append(
+                {
+                    "page": page_index + 1,
+                    "icao": ", ".join(sorted(matched_icaos)),
+                    "raw": "Chile AD3 Multi-Airport Match",
+                    "parser": "Chile"
+                }
+            )
+
+        else:
+
+            removed_page_details.append(
+                {
+                    "page": page_index + 1,
+                    "category": "AD 3"
+                }
+            )
+
+            continue
+
+    elif section == "AD" and major == 2:
+
+        owner_icao = get_owner_icao_from_section_detail(
+            section_detail
+        )
+
+        if not owner_icao:
+            removed_page_details.append(
+                {
+                    "page": page_index + 1,
+                    "category": get_clean_removed_category(section_detail)
+                }
+            )
+            continue
+
+        if owner_icao in allowed_icaos:
+            kept_ad_owners.add(owner_icao)
+
+        else:
+            removed_ad_owners.add(owner_icao)
+
+            removed_page_details.append(
+                {
+                    "page": page_index + 1,
+                    "category": get_clean_removed_category(section_detail)
+                }
+            )
+
+            continue
 
             if owner_icao in allowed_icaos:
                 kept_ad_owners.add(owner_icao)

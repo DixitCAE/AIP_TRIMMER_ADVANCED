@@ -117,17 +117,19 @@ def load_master():
 # =============================
 # COUNTRY / PARSER PROFILE LIST
 # =============================
-COUNTRY_OPTIONS = [
-    "Universal",
-    "Portugal",
-    "China",
-    "Brazil",
-    "Malaysia",
-    "Indonesia",
-    "ASECNA",
-    "COCESNA",
-    "Chile",
-]
+COUNTRY_OPTIONS = ["Universal"] + sorted(
+    [
+        "Portugal",
+        "China",
+        "Brazil",
+        "Malaysia",
+        "Indonesia",
+        "ASECNA",
+        "COCESNA",
+        "Chile",
+    ],
+    key=str.lower
+)
 
 
 GROUP_PROFILES = {"ASECNA", "COCESNA"}
@@ -1018,6 +1020,10 @@ def sync_enr_subsections():
         for key in st.session_state.get("enr_subsection_keys", []):
             st.session_state[key] = True
 
+def sync_ad_subsections():
+    if st.session_state.get("toggle_AD", False):
+        for key in st.session_state.get("ad_subsection_keys", []):
+            st.session_state[key] = True
 
 def load_more_preview_pages():
     """
@@ -1155,7 +1161,7 @@ def process_pdf(input_pdf_path, selected_date, country):
     # =============================
 # SELECTION HELPERS
 # =============================
-def get_selected_page_tuples(pages, selected_sections, selected_enr_majors):
+def get_selected_page_tuples(pages, selected_sections, selected_enr_majors, selected_ad_majors):
     selected_page_tuples = []
 
     for page_tuple in pages:
@@ -1170,17 +1176,23 @@ def get_selected_page_tuples(pages, selected_sections, selected_enr_majors):
             if "ENR" in selected_sections and major in selected_enr_majors:
                 selected_page_tuples.append(page_tuple)
 
+        elif section == "AD":
+            if "AD" in selected_sections:
+                if major is None or major in selected_ad_majors:
+                    selected_page_tuples.append(page_tuple)
+
         elif section in selected_sections:
             selected_page_tuples.append(page_tuple)
 
     return selected_page_tuples
 
 
-def get_selection_signature(selected_sections, selected_enr_majors, country):
+def get_selection_signature(selected_sections, selected_enr_majors, selected_ad_majors, country):
     return (
         country,
         tuple(sorted(selected_sections)),
-        tuple(sorted(selected_enr_majors))
+        tuple(sorted(selected_enr_majors)),
+        tuple(sorted(selected_ad_majors))
     )
 
 
@@ -1463,6 +1475,7 @@ default_state = {
     "last_selection_signature": None,
     "selection_initialized": False,
     "enr_subsection_keys": [],
+    "ad_subsection_keys": [],
     "processed_country": None
 }
 
@@ -1580,6 +1593,18 @@ if st.session_state.processed:
         f"toggle_ENR_{major}"
         for major in present_enr_majors
     ]
+    present_ad_majors = sorted(
+        {
+            get_page_major(page)
+            for page in pages
+            if get_page_section(page) == "AD" and get_page_major(page) is not None
+        }
+    )
+
+    ad_subsection_keys = [
+        f"toggle_AD_{major}"
+        for major in present_ad_majors
+    ]
 
     if not st.session_state.selection_initialized:
         st.session_state["toggle_GEN"] = False
@@ -1587,20 +1612,31 @@ if st.session_state.processed:
         st.session_state["toggle_AD"] = False
 
         for key in list(st.session_state.keys()):
-            if isinstance(key, str) and key.startswith("toggle_ENR_"):
+            if isinstance(key, str) and (
+                key.startswith("toggle_ENR_") or key.startswith("toggle_AD_")
+            ):
                 del st.session_state[key]
 
         for major in present_enr_majors:
             st.session_state[f"toggle_ENR_{major}"] = True
 
+        for major in present_ad_majors:
+            st.session_state[f"toggle_AD_{major}"] = True
+
         st.session_state.enr_subsection_keys = enr_subsection_keys
+        st.session_state.ad_subsection_keys = ad_subsection_keys
         st.session_state.selection_initialized = True
     else:
         st.session_state.enr_subsection_keys = enr_subsection_keys
+        st.session_state.ad_subsection_keys = ad_subsection_keys
 
         for major in present_enr_majors:
             key = f"toggle_ENR_{major}"
+            if key not in st.session_state:
+                st.session_state[key] = True
 
+        for major in present_ad_majors:
+            key = f"toggle_AD_{major}"
             if key not in st.session_state:
                 st.session_state[key] = True
 
@@ -1628,6 +1664,7 @@ if st.session_state.processed:
 
     selected_sections = []
     selected_enr_majors = set()
+    selected_ad_majors = set()
 
     if "GEN" in present_sections:
         if st.toggle("GEN", key="toggle_GEN"):
@@ -1665,6 +1702,26 @@ if st.session_state.processed:
         if st.toggle("AD", key="toggle_AD"):
             selected_sections.append("AD")
 
+        if present_ad_majors:
+            st.markdown(
+                """
+                <div class="ad-subsection-title">AD Major Sections</div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            for major in present_ad_majors:
+                sub_key = f"toggle_AD_{major}"
+
+                sub_col_space, sub_col_toggle = st.columns([0.04, 0.96])
+
+                with sub_col_toggle:
+                    if st.toggle(
+                        f"AD {major}",
+                        key=sub_key
+                    ):
+                        selected_ad_majors.add(major)
+
     if not selected_sections:
         st.stop()
 
@@ -1674,20 +1731,28 @@ if st.session_state.processed:
             for section in selected_sections
             if section != "ENR"
         ]
-
+    if "AD" in selected_sections and not selected_ad_majors:
+        selected_sections = [
+            section
+            for section in selected_sections
+            if section != "AD"
+        ]
+    
     if not selected_sections:
         st.stop()
 
     selection_signature = get_selection_signature(
         selected_sections,
         selected_enr_majors,
+        selected_ad_majors,
         st.session_state.processed_country
     )
 
     selected_page_tuples = get_selected_page_tuples(
         pages=pages,
         selected_sections=selected_sections,
-        selected_enr_majors=selected_enr_majors
+        selected_enr_majors=selected_enr_majors,
+        selected_ad_majors=selected_ad_majors
     )
 
     if not selected_page_tuples:
@@ -1903,4 +1968,4 @@ if st.session_state.processed:
             """,
             unsafe_allow_html=True
         )
-    
+          

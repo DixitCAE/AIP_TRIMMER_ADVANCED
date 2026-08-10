@@ -125,7 +125,8 @@ COUNTRY_OPTIONS = [
     "Malaysia",
     "Indonesia",
     "ASECNA",
-    "COCESNA"
+    "COCESNA",
+    "Chile",
 ]
 
 
@@ -1276,6 +1277,170 @@ def prepare_output_pdf(selected_page_tuples, selection_signature):
 
     return output_pdf_path, output_page_count
 
+# =============================================================
+# CHILE — fully isolated parser (does NOT touch other logic)
+# Chile prints minor AD (AD 3.1) & heliports (AD 3.2) as regional
+# tables: many airports per page, ICAO in the page BODY.
+# Big airports (AD 2) keep the ICAO in the running header.
+# =============================================================
+CHILE_ICAO_RE = re.compile(r"\b(SC[A-Z]{2}|SH[A-Z]{2})\b")
+CHILE_NON_AIRPORT_CODES = {"SCEZ", "SCFZ", "SCTZ", "SCIZ", "SCCZ"}
+CHILE_HEADER_MARKERS = ("AIP-CHILE", "AIS-CHILE")
+
+
+def _chile_extract_icaos(page_text, sh_ok):
+    codes = set()
+    for match in CHILE_ICAO_RE.finditer(str(page_text).upper()):
+        code = match.group(1)
+        if code in CHILE_NON_AIRPORT_CODES:
+            continue
+        if code.startswith("SH") and not sh_ok:
+            continue
+        codes.add(code)
+    return codes
+
+
+def _chile_lines(page_text):
+    return [compact_spaces(r) for r in str(page_text).splitlines() if compact_spaces(r)]
+
+
+def _chile_identity(page_text):
+    lines = _chile_lines(page_text)
+
+    header_rules = [
+        ("AD2",    r"AD\s*2\s+(SC[A-Z]{2})\s*-?\s*\d"),
+        ("AD2SUB", r"AD\s*2\s*\.\s*\d"),
+        ("AD3",    r"AD\s*3\s*\.\s*(\d)"),
+        ("ADX",    r"AD\s*([01])\s*\."),
+        ("GEN",    r"\b(GEN)\s*(\d+)"),
+        ("ENR",    r"\b(ENR)\s*(\d+)"),
+    ]
+    for line in lines:
+        if not any(mk in line for mk in CHILE_HEADER_MARKERS):
+            continue
+        for kind, pat in header_rules:
+            m = re.search(pat, line)
+            if m:
+                return kind, m
+
+    standalone_rules = [
+        ("AD3",    r"^AD\s*3\s*\.\s*(\d)\s*-\s*\d"),
+        ("AD2",    r"^AD\s*2\s+(SC[A-Z]{2})\s*-\s*\d"),
+        ("AD2SUB", r"^AD\s*2\s*\.\s*\d"),
+        ("ADX",    r"^AD\s*([01])\s*\.\s*\d"),
+        ("GEN",    r"^(GEN)\s*(\d+)\s*[\.\-]"),
+        ("ENR",    r"^(ENR)\s*(\d+)\s*[\.\-]"),
+    ]
+    for line in lines:
+        for kind, pat in standalone_rules:
+            m = re.match(pat, line)
+            if m:
+                return kind, m
+
+    return None, None
+
+
+def _chile_section_detail(page_text):
+    kind, m = _chile_identity(page_text)
+
+    if not kind:
+        return {"section": None, "major": None, "raw": None, "icao": None,
+                "owner_icaos": set(), "parser": "Chile-unrecognized"}
+
+    if kind == "AD2":
+        icao = m.group(1).upper()
+        return {"section": "AD", "major": 2, "raw": m.group(0), "icao": icao,
+                "owner_icaos": {icao}, "parser": "Chile-AD2"}
+
+    if kind == "AD3":
+        sub = int(m.group(1))
+        if sub in (1, 2):
+            owners = _chile_extract_icaos(page_text, sh_ok=(sub == 2))
+            return {"section": "AD", "major": 2, "raw": m.group(0), "icao": None,
+                    "owner_icaos": owners, "parser": f"Chile-AD3.{sub}"}
+        return {"section": "AD", "major": 3, "raw": m.group(0), "icao": None,
+                "owner_icaos": set(), "parser": "Chile-AD3.0"}
+
+    if kind == "ADX":
+        return {"section": "AD", "major": int(m.group(1)), "raw": m.group(0),
+                "icao": None, "owner_icaos": set(), "parser": "Chile-ADadmin"}
+
+    if kind == "AD2SUB":
+        return {"section": "AD", "major": 2, "raw": m.group(0), "icao": None,
+                "owner_icaos": set(), "parser": "Chile-AD2gen"}
+
+    section, major = m.group(1), int(m.group(2))
+    return {"section": section, "major": major, "raw": m.group(0), "icao": None,
+            "owner_icaos": set(), "parser": "Chile-generic"}
+
+
+def process_pdf_chile(input_pdf_path, selected_date):
+    """Chile-only pipeline. Returns the SAME 8-tuple as process_pdf()."""
+    doc = fitz.open(input_pdf_path)
+    total_pdf_pages = len(doc)
+    allowed_icaos = load_master()
+
+    temp_pages, auto_removed_pages, removed_page_details = [], [], []
+    detected_ad_owners, kept_ad_owners, removed_ad_owners = set(), set(), set()
+    ad_detection_details = []
+
+    for page_index in range(len(doc)):
+        text = doc[page_index].get_text()
+        detail = _chile_section_detail(text)
+        section = detail["section"]
+        owners = set(detail.get("owner_icaos") or set())
+
+        if section == "AD" and detail.get("major") == 2 and owners:
+            detected_ad_owners.update(owners)
+            ad_detection_details.append(
+                {"page": page_index + 1, "icao": ", ".join(sorted(owners)),
+                 "raw": detail.get("raw"), "parser": detail.get("parser")})
+
+        if not section:
+            removed_page_details.append(
+                {"page": page_index + 1, "category": get_clean_removed_category(detail)})
+            continue
+
+        if is_auto_removed_section(detail):
+            auto_removed_pages.append(
+                {"page": page_index + 1, "section": detail["section"],
+                 "major": detail["major"], "raw": detail["raw"]})
+            removed_page_details.append(
+                {"page": page_index + 1, "category": get_clean_removed_category(detail)})
+            continue
+
+        if not match_date_for_country(text, selected_date, "Chile"):
+            removed_page_details.append(
+                {"page": page_index + 1, "category": get_clean_removed_category(detail)})
+            continue
+
+        temp_pages.append((page_index, section, detail))
+
+    final_pages = []
+    for page_index, section, detail in temp_pages:
+        major = detail.get("major")
+        if section == "AD" and major == 2:
+            owners = set(detail.get("owner_icaos") or set())
+            if not owners:
+                removed_page_details.append(
+                    {"page": page_index + 1, "category": get_clean_removed_category(detail)})
+                continue
+            matched = {i for i in owners if i in allowed_icaos}
+            if matched:
+                kept_ad_owners.update(matched)
+                removed_ad_owners.update(owners - matched)
+            else:
+                removed_ad_owners.update(owners)
+                removed_page_details.append(
+                    {"page": page_index + 1, "category": get_clean_removed_category(detail)})
+                continue
+        final_pages.append((page_index, section, major))
+
+    doc.close()
+    return (total_pdf_pages, final_pages, detected_ad_owners, kept_ad_owners,
+            removed_ad_owners, auto_removed_pages, removed_page_details,
+            ad_detection_details)
+
 
 # =============================
 # SESSION STATE INIT
@@ -1348,20 +1513,23 @@ if file:
             unsafe_allow_html=True
         )
 
-        (
-            total_pdf_pages,
-            pages,
-            detected_ad_owners,
-            kept,
-            removed,
-            auto_removed_pages,
-            removed_page_details,
-            ad_detection_details
-        ) = process_pdf(
-            input_pdf_path,
-            date.strftime("%d %b %Y"),
-            country
-        )
+        if country == "Chile":
+            (
+                total_pdf_pages, pages, detected_ad_owners, kept, removed,
+                auto_removed_pages, removed_page_details, ad_detection_details
+            ) = process_pdf_chile(
+                input_pdf_path,
+                date.strftime("%d %b %Y")
+            )
+        else:
+            (
+                total_pdf_pages, pages, detected_ad_owners, kept, removed,
+                auto_removed_pages, removed_page_details, ad_detection_details
+            ) = process_pdf(
+                input_pdf_path,
+                date.strftime("%d %b %Y"),
+                country
+            )
 
         plane_box.empty()
 

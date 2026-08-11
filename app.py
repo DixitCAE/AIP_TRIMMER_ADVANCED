@@ -8,6 +8,9 @@ import tempfile
 import uuid
 import os
 
+import os
+os.environ["TESSDATA_PREFIX"] = r"C:\Users\divyn\AppData\Local\Tesseract-OCR\tessdata"
+os.environ["PATH"] = r"C:\Users\divyn\AppData\Local\Tesseract-OCR" + os.pathsep + os.environ["PATH"]
 
 # =============================
 # PAGE CONFIG
@@ -127,6 +130,7 @@ COUNTRY_OPTIONS = ["Universal"] + sorted(
         "ASECNA",
         "COCESNA",
         "Chile",
+        "Greece",
     ],
     key=str.lower
 )
@@ -1453,6 +1457,142 @@ def process_pdf_chile(input_pdf_path, selected_date):
             removed_ad_owners, auto_removed_pages, removed_page_details,
             ad_detection_details)
 
+# =============================================================
+# GREECE — isolated profile (full-page text + OCR fallback)
+# One airport per page. Identity = "AD 2-LGxx-..." (charts) or
+# "AD 2 LGxx-N" (text footer). Effective date is in the FOOTER on
+# chart pages, and chart pages are FLATTENED IMAGES -> need OCR.
+# =============================================================
+
+def _needs_ocr(text):
+    # flattened chart pages return almost nothing from get_text()
+    return len(str(text).strip()) < 20
+
+
+def _ocr_page_text(page, dpi=200):
+    """OCR a single page. Returns '' if Tesseract is unavailable."""
+    try:
+        tp = page.get_textpage_ocr(dpi=dpi, full=True)
+        return page.get_text(textpage=tp) or ""
+    except Exception:
+        return ""
+
+
+def _greece_owner_icao(page_text):
+    """
+    Owner ICAO for a Greece AD 2 page.
+    Prefer the page's OWN identity block 'AD 2-LGxx' / 'AD 2 LGxx-N'
+    (never a body cross-ref like 'see LGAD AD 2.18').
+    """
+    t = compact_spaces(page_text)
+
+    ad_first = re.findall(r"AD\s*2\s*[-\s]+(LG[A-Z]{2})\b", t)
+    if ad_first:
+        return Counter(x.upper() for x in ad_first).most_common(1)[0][0]
+
+    icao_first = re.findall(r"(LG[A-Z]{2})\s+AD\s*2\b", t)
+    if icao_first:
+        return Counter(x.upper() for x in icao_first).most_common(1)[0][0]
+
+    return None
+
+
+def _greece_section_detail(page, page_text):
+    # 1) Greece AD-2 airport identity from FULL text (header + footer + margins)
+    icao = _greece_owner_icao(page_text)
+    if icao:
+        return {
+            "section": "AD", "major": 2, "raw": "AD 2 " + icao,
+            "icao": icao, "owner_icaos": {icao}, "parser": "Greece-AD2",
+        }
+
+    # 2) everything else -> reuse the EXISTING generic detector (unchanged)
+    detail = extract_section_detail_from_page(page, page_text, "Universal")
+    detail.setdefault("owner_icaos", set())
+    return detail
+
+
+def process_pdf_greece(input_pdf_path, selected_date):
+    """Greece-only pipeline. Returns the SAME 8-tuple as process_pdf()."""
+    doc = fitz.open(input_pdf_path)
+    total_pdf_pages = len(doc)
+    allowed_icaos = load_master()
+
+    temp_pages, auto_removed_pages, removed_page_details = [], [], []
+    detected_ad_owners, kept_ad_owners, removed_ad_owners = set(), set(), set()
+    ad_detection_details = []
+    ocr_pages = []
+
+    for page_index in range(len(doc)):
+        page = doc[page_index]
+        text = page.get_text()                      # real text layer
+
+        # OCR fallback ONLY for flattened image pages (charts)
+        if _needs_ocr(text):
+            ocr_text = _ocr_page_text(page)
+            if ocr_text.strip():
+                text = ocr_text
+                ocr_pages.append(page_index + 1)
+
+        detail = _greece_section_detail(page, text)
+        section = detail["section"]
+        owners = set(detail.get("owner_icaos") or set())
+
+        if section == "AD" and detail.get("major") == 2 and owners:
+            detected_ad_owners.update(owners)
+            ad_detection_details.append(
+                {"page": page_index + 1, "icao": ", ".join(sorted(owners)),
+                 "raw": detail.get("raw"), "parser": detail.get("parser")})
+
+        if not section:
+            removed_page_details.append(
+                {"page": page_index + 1, "category": get_clean_removed_category(detail)})
+            continue
+
+        if is_auto_removed_section(detail):
+            auto_removed_pages.append(
+                {"page": page_index + 1, "section": detail["section"],
+                 "major": detail["major"], "raw": detail["raw"]})
+            removed_page_details.append(
+                {"page": page_index + 1, "category": get_clean_removed_category(detail)})
+            continue
+
+        if not match_date_for_country(text, selected_date, "Greece"):
+            removed_page_details.append(
+                {"page": page_index + 1, "category": get_clean_removed_category(detail)})
+            continue
+
+        temp_pages.append((page_index, section, detail))
+
+    final_pages = []
+    for page_index, section, detail in temp_pages:
+        major = detail.get("major")
+        if section == "AD" and major == 2:
+            owners = set(detail.get("owner_icaos") or set())
+            if not owners:
+                removed_page_details.append(
+                    {"page": page_index + 1, "category": get_clean_removed_category(detail)})
+                continue
+            matched = {i for i in owners if i in allowed_icaos}
+            if matched:
+                kept_ad_owners.update(matched)
+                removed_ad_owners.update(owners - matched)
+            else:
+                removed_ad_owners.update(owners)
+                removed_page_details.append(
+                    {"page": page_index + 1, "category": get_clean_removed_category(detail)})
+                continue
+        final_pages.append((page_index, section, major))
+
+    doc.close()
+
+    # stash OCR page list for the side panel (Greece-only, harmless elsewhere)
+    st.session_state["greece_ocr_pages"] = ocr_pages
+
+    return (total_pdf_pages, final_pages, detected_ad_owners, kept_ad_owners,
+            removed_ad_owners, auto_removed_pages, removed_page_details,
+            ad_detection_details)
+
 
 # =============================
 # SESSION STATE INIT
@@ -1531,6 +1671,14 @@ if file:
                 total_pdf_pages, pages, detected_ad_owners, kept, removed,
                 auto_removed_pages, removed_page_details, ad_detection_details
             ) = process_pdf_chile(
+                input_pdf_path,
+                date.strftime("%d %b %Y")
+            )
+        elif country == "Greece":
+            (
+                total_pdf_pages, pages, detected_ad_owners, kept, removed,
+                auto_removed_pages, removed_page_details, ad_detection_details
+            ) = process_pdf_greece(
                 input_pdf_path,
                 date.strftime("%d %b %Y")
             )
@@ -1840,6 +1988,12 @@ if st.session_state.processed:
         st.caption(
             f"Parser profile: {st.session_state.processed_country}"
         )
+        if st.session_state.processed_country == "Greece":
+            ocr_pages = st.session_state.get("greece_ocr_pages", [])
+            if ocr_pages:
+                st.caption(f"🔍 OCR used on {len(ocr_pages)} page(s): "
+                           f"{', '.join(map(str, ocr_pages[:20]))}"
+                           f"{' …' if len(ocr_pages) > 20 else ''}")
 
         detected_ad_owners = st.session_state.get("detected_ad_owners", set())
         kept_ad_owners = st.session_state.get("kept", set())

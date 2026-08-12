@@ -1537,7 +1537,7 @@ def _greece_owner(page_text):
     t = compact_spaces(page_text)
 
     # hyphen identity: AD 2-LGAL / AD 1.6.29-LGTG  (OCR-tolerant separators)
-    hyphen = re.findall(r"AD\s*(\d+)[\d.\s]*[-–—.]\s*(LG[A-Z]{2})\b", t)
+    hyphen = re.findall(r"AD\s*(\d+)(?:\s*\.\s*\d+)*\s*[-–—.]\s*(LG[A-Z]{2})\b", t)
     if hyphen:
         icao = Counter(x[1].upper() for x in hyphen).most_common(1)[0][0]
         major = int(next(m for m, i in hyphen if i.upper() == icao))
@@ -1560,17 +1560,17 @@ def _greece_owner(page_text):
     return None, None
 
 
-def _greece_section_detail(page, page_text):
-    # 1) Greece AD airport identity from FULL text (header + footer + margins)
-    icao, major = _greece_owner(page_text)
+def _greece_section_detail(page, full_text, identity_text):
+    # OWNER comes ONLY from identity zone (header/footer/corners), never body.
+    icao, major = _greece_owner(identity_text)
     if icao:
         return {
             "section": "AD", "major": major, "raw": f"AD {major} " + icao,
             "icao": icao, "owner_icaos": {icao}, "parser": f"Greece-AD{major}",
         }
 
-    # 2) everything else -> reuse the EXISTING generic detector (unchanged)
-    detail = extract_section_detail_from_page(page, page_text, "Universal")
+    # everything else -> existing generic detector (leakproof: no ICAO from body)
+    detail = extract_section_detail_from_page(page, full_text, "Universal")
     detail.setdefault("owner_icaos", set())
     return detail
 

@@ -1588,30 +1588,33 @@ def process_pdf_greece(input_pdf_path, selected_date):
 
     for page_index in range(len(doc)):
         page = doc[page_index]
-        text = page.get_text()                      # real text layer
+        text = page.get_text()                          # real text layer
         raw_len = len(text.strip())
         date_in_text = match_date_for_country(text, selected_date, "Greece")
 
+        # identity ALWAYS starts from the clean header/footer zone (never body)
+        identity_text = "\n".join(get_zone_lines(page))
+
         if raw_len < 30:
-            # TRUE IMAGE page -> full OCR + high-res corner OCR
-            # (identity in top corners, date in bottom corners)
-            ocr_full = _ocr_page_text(page)          # body labels
-            ocr_corners = _ocr_corners_text(page)    # tiny ID + date, all corners
-            merged = "\n".join([ocr_full, ocr_corners]).strip()
-            if merged:
-                text = text + "\n" + merged
+            # TRUE IMAGE chart -> OCR corners for identity + date
+            ocr_corners = _ocr_corners_text(page)
+            identity_text = identity_text + "\n" + ocr_corners
+            text = text + "\n" + ocr_corners
+            if ocr_corners.strip():
                 ocr_pages.append(page_index + 1)
 
         elif not date_in_text:
-            # TEXT/HYBRID page missing the date -> cheap corner OCR (date only)
+            # hybrid text page missing the date -> cheap corner OCR
             ocr_corners = _ocr_corners_text(page)
+            identity_text = identity_text + "\n" + ocr_corners
+            text = text + "\n" + ocr_corners
             if ocr_corners.strip():
-                text = text + "\n" + ocr_corners
                 ocr_pages.append(page_index + 1)
 
-        # else: complete text page (identity + date present) -> NO OCR
+        # else: complete text page -> no OCR
 
-        detail = _greece_section_detail(page, text)
+        detail = _greece_section_detail(page, text, identity_text)
+
         section = detail["section"]
         owners = set(detail.get("owner_icaos") or set())
 

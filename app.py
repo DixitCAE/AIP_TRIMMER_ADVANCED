@@ -1477,33 +1477,96 @@ def _ocr_page_text(page, dpi=200):
     except Exception:
         return ""
 
+def _ocr_clip_text(page, clip, zoom=7.0):
+    """High-res OCR of a small page region (good for tiny footer text)."""
+    try:
+        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip, alpha=False)
+        pdfbytes = pix.pdfocr_tobytes(language="eng")
+        d = fitz.open("pdf", pdfbytes)
+        t = d[0].get_text() or ""
+        d.close()
+        return t
+    except Exception:
+        return ""
 
-def _greece_owner_icao(page_text):
+
+def _ocr_footer_text(page, zoom=7.0):
+    """OCR the bottom strip where Greece hides the effective date."""
+    r = page.rect
+    footer = fitz.Rect(r.x0, r.y1 - r.height * 0.12, r.x1, r.y1)
+    return _ocr_clip_text(page, footer, zoom=zoom)
+
+def _ocr_header_text(page, zoom=7.0):
+    """OCR the top strip where Greece puts the chart identity (AD ..-LGxx-..)."""
+    r = page.rect
+    header = fitz.Rect(r.x0, r.y0, r.x1, r.y0 + r.height * 0.12)
+    return _ocr_clip_text(page, header, zoom=zoom)
+
+def _ocr_corners_text(page, zoom=9.0):
     """
-    Owner ICAO for a Greece AD 2 page.
-    Prefer the page's OWN identity block 'AD 2-LGxx' / 'AD 2 LGxx-N'
-    (never a body cross-ref like 'see LGAD AD 2.18').
+    High-res OCR of all FOUR corners + top/bottom strips.
+    AIP charts always place the identity (top corners) and the effective date
+    (bottom corners) in tiny text -> crop small + zoom big so Tesseract reads it.
+    """
+    r = page.rect
+    w, h = r.width, r.height
+
+    regions = [
+        fitz.Rect(r.x0,              r.y0,              r.x1,              r.y0 + h * 0.10),  # full top strip
+        fitz.Rect(r.x0,              r.y1 - h * 0.10,   r.x1,              r.y1),             # full bottom strip
+        fitz.Rect(r.x0 + w * 0.45,   r.y0,              r.x1,              r.y0 + h * 0.10),  # top-right (identity)
+        fitz.Rect(r.x0,              r.y0,              r.x0 + w * 0.55,   r.y0 + h * 0.10),  # top-left
+        fitz.Rect(r.x0,              r.y1 - h * 0.10,   r.x0 + w * 0.55,   r.y1),             # bottom-left (date)
+        fitz.Rect(r.x0 + w * 0.45,   r.y1 - h * 0.10,   r.x1,             r.y1),              # bottom-right (AIRAC)
+    ]
+
+    out = []
+    for clip in regions:
+        txt = _ocr_clip_text(page, clip, zoom=zoom)
+        if txt.strip():
+            out.append(txt)
+    return "\n".join(out)
+
+def _greece_owner(page_text):
+    """
+    Returns (icao, major) for a Greece chart/AD page.
+    Identity forms: 'AD 2-LGxx', 'AD 1.6.29-LGxx', 'AD 2 LGxx-N', 'LGxx AD 2'.
+    OCR-tolerant: accepts - . – — or spaces as the separator.
+    Never a body cross-ref like 'see LGAD AD 2.18'.
     """
     t = compact_spaces(page_text)
 
-    ad_first = re.findall(r"AD\s*2\s*[-\s]+(LG[A-Z]{2})\b", t)
+    # hyphen identity: AD 2-LGAL / AD 1.6.29-LGTG  (OCR-tolerant separators)
+    hyphen = re.findall(r"AD\s*(\d+)[\d.\s]*[-–—.]\s*(LG[A-Z]{2})\b", t)
+    if hyphen:
+        icao = Counter(x[1].upper() for x in hyphen).most_common(1)[0][0]
+        major = int(next(m for m, i in hyphen if i.upper() == icao))
+        return icao, major
+
+    # text footer form: AD 2 LGKF-4
+    ad_first = re.findall(r"AD\s*(\d+)\s+(LG[A-Z]{2})\b", t)
     if ad_first:
-        return Counter(x.upper() for x in ad_first).most_common(1)[0][0]
+        icao = Counter(x[1].upper() for x in ad_first).most_common(1)[0][0]
+        major = int(next(m for m, i in ad_first if i.upper() == icao))
+        return icao, major
 
-    icao_first = re.findall(r"(LG[A-Z]{2})\s+AD\s*2\b", t)
+    # icao-first form: LGKF AD 2
+    icao_first = re.findall(r"(LG[A-Z]{2})\s+AD\s*(\d+)\b", t)
     if icao_first:
-        return Counter(x.upper() for x in icao_first).most_common(1)[0][0]
+        icao = Counter(x[0].upper() for x in icao_first).most_common(1)[0][0]
+        major = int(next(m for i, m in icao_first if i.upper() == icao))
+        return icao, major
 
-    return None
+    return None, None
 
 
 def _greece_section_detail(page, page_text):
-    # 1) Greece AD-2 airport identity from FULL text (header + footer + margins)
-    icao = _greece_owner_icao(page_text)
+    # 1) Greece AD airport identity from FULL text (header + footer + margins)
+    icao, major = _greece_owner(page_text)
     if icao:
         return {
-            "section": "AD", "major": 2, "raw": "AD 2 " + icao,
-            "icao": icao, "owner_icaos": {icao}, "parser": "Greece-AD2",
+            "section": "AD", "major": major, "raw": f"AD {major} " + icao,
+            "icao": icao, "owner_icaos": {icao}, "parser": f"Greece-AD{major}",
         }
 
     # 2) everything else -> reuse the EXISTING generic detector (unchanged)
@@ -1526,13 +1589,27 @@ def process_pdf_greece(input_pdf_path, selected_date):
     for page_index in range(len(doc)):
         page = doc[page_index]
         text = page.get_text()                      # real text layer
+        raw_len = len(text.strip())
+        date_in_text = match_date_for_country(text, selected_date, "Greece")
 
-        # OCR fallback ONLY for flattened image pages (charts)
-        if _needs_ocr(text):
-            ocr_text = _ocr_page_text(page)
-            if ocr_text.strip():
-                text = ocr_text
+        if raw_len < 30:
+            # TRUE IMAGE page -> full OCR + high-res corner OCR
+            # (identity in top corners, date in bottom corners)
+            ocr_full = _ocr_page_text(page)          # body labels
+            ocr_corners = _ocr_corners_text(page)    # tiny ID + date, all corners
+            merged = "\n".join([ocr_full, ocr_corners]).strip()
+            if merged:
+                text = text + "\n" + merged
                 ocr_pages.append(page_index + 1)
+
+        elif not date_in_text:
+            # TEXT/HYBRID page missing the date -> cheap corner OCR (date only)
+            ocr_corners = _ocr_corners_text(page)
+            if ocr_corners.strip():
+                text = text + "\n" + ocr_corners
+                ocr_pages.append(page_index + 1)
+
+        # else: complete text page (identity + date present) -> NO OCR
 
         detail = _greece_section_detail(page, text)
         section = detail["section"]
@@ -1567,12 +1644,8 @@ def process_pdf_greece(input_pdf_path, selected_date):
     final_pages = []
     for page_index, section, detail in temp_pages:
         major = detail.get("major")
-        if section == "AD" and major == 2:
-            owners = set(detail.get("owner_icaos") or set())
-            if not owners:
-                removed_page_details.append(
-                    {"page": page_index + 1, "category": get_clean_removed_category(detail)})
-                continue
+        owners = set(detail.get("owner_icaos") or set())
+        if section == "AD" and major == 2 and owners:   # master-filter ONLY AD 2
             matched = {i for i in owners if i in allowed_icaos}
             if matched:
                 kept_ad_owners.update(matched)
@@ -1869,7 +1942,7 @@ if st.session_state.processed:
                         key=sub_key
                     ):
                         selected_ad_majors.add(major)
-
+                        
     if not selected_sections:
         st.stop()
 

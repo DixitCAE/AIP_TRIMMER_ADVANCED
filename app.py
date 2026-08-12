@@ -9,8 +9,23 @@ import uuid
 import os
 
 import os
-os.environ["TESSDATA_PREFIX"] = r"C:\Users\divyn\AppData\Local\Tesseract-OCR\tessdata"
-os.environ["PATH"] = r"C:\Users\divyn\AppData\Local\Tesseract-OCR" + os.pathsep + os.environ["PATH"]
+import sys
+
+if sys.platform.startswith("win"):
+    # Local Windows machine
+    os.environ["TESSDATA_PREFIX"] = r"C:\Users\divyn\AppData\Local\Tesseract-OCR\tessdata"
+    os.environ["PATH"] = r"C:\Users\divyn\AppData\Local\Tesseract-OCR" + os.pathsep + os.environ["PATH"]
+else:
+    # Linux server (Streamlit Cloud). packages.txt installs tesseract-ocr.
+    for _p in (
+        "/usr/share/tesseract-ocr/5/tessdata",
+        "/usr/share/tesseract-ocr/4.00/tessdata",
+        "/usr/share/tesseract-ocr/tessdata",
+        "/usr/share/tessdata",
+    ):
+        if os.path.isdir(_p):
+            os.environ["TESSDATA_PREFIX"] = _p
+            break
 
 # =============================
 # PAGE CONFIG
@@ -1561,15 +1576,13 @@ def _greece_owner(page_text):
 
 
 def _greece_section_detail(page, full_text, identity_text):
-    # OWNER comes ONLY from identity zone (header/footer/corners), never body.
+    # OWNER only from identity zone (header/footer/corners) — never body
     icao, major = _greece_owner(identity_text)
     if icao:
         return {
             "section": "AD", "major": major, "raw": f"AD {major} " + icao,
             "icao": icao, "owner_icaos": {icao}, "parser": f"Greece-AD{major}",
         }
-
-    # everything else -> existing generic detector (leakproof: no ICAO from body)
     detail = extract_section_detail_from_page(page, full_text, "Universal")
     detail.setdefault("owner_icaos", set())
     return detail
@@ -1592,26 +1605,24 @@ def process_pdf_greece(input_pdf_path, selected_date):
         raw_len = len(text.strip())
         date_in_text = match_date_for_country(text, selected_date, "Greece")
 
-        # identity ALWAYS starts from the clean header/footer zone (never body)
-        identity_text = "\n".join(get_zone_lines(page))
+        # identity ALWAYS from the clean header/footer zone (never full body)
+        zone_text = "\n".join(get_zone_lines(page))
+        identity_text = zone_text
 
-        if raw_len < 30:
-            # TRUE IMAGE chart -> OCR corners for identity + date
+        # Does the clean zone already contain a Greece AD/GEN/ENR identity?
+        zone_icao, _zone_major = _greece_owner(zone_text)
+        zone_has_generic = bool(re.search(r"\b(GEN|ENR|AD)\b", compact_spaces(zone_text)))
+        complete_text_page = (
+            raw_len >= 30 and date_in_text and (zone_icao or zone_has_generic)
+        )
+
+        # OCR unless it's already a complete, dated, identified text page
+        if not complete_text_page:
             ocr_corners = _ocr_corners_text(page)
-            identity_text = identity_text + "\n" + ocr_corners
-            text = text + "\n" + ocr_corners
             if ocr_corners.strip():
+                identity_text = identity_text + "\n" + ocr_corners
+                text = text + "\n" + ocr_corners
                 ocr_pages.append(page_index + 1)
-
-        elif not date_in_text:
-            # hybrid text page missing the date -> cheap corner OCR
-            ocr_corners = _ocr_corners_text(page)
-            identity_text = identity_text + "\n" + ocr_corners
-            text = text + "\n" + ocr_corners
-            if ocr_corners.strip():
-                ocr_pages.append(page_index + 1)
-
-        # else: complete text page -> no OCR
 
         detail = _greece_section_detail(page, text, identity_text)
 

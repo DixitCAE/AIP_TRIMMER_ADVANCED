@@ -1583,8 +1583,16 @@ def _greece_section_detail(page, full_text, identity_text):
             "section": "AD", "major": major, "raw": f"AD {major} " + icao,
             "icao": icao, "owner_icaos": {icao}, "parser": f"Greece-AD{major}",
         }
+
     detail = extract_section_detail_from_page(page, full_text, "Universal")
     detail.setdefault("owner_icaos", set())
+
+    # NEW: generic detector found an AD-2 airport owner (from the leakproof
+    # title zone) -> promote it into owner_icaos so the master filter runs.
+    gen_icao = detail.get("icao")
+    if detail.get("section") == "AD" and detail.get("major") == 2 and gen_icao:
+        detail["owner_icaos"] = {str(gen_icao).strip().upper()}
+
     return detail
 
 
@@ -1593,6 +1601,10 @@ def process_pdf_greece(input_pdf_path, selected_date):
     doc = fitz.open(input_pdf_path)
     total_pdf_pages = len(doc)
     allowed_icaos = load_master()
+
+    st.session_state["greece_master_has_LG"] = sorted(
+        [c for c in allowed_icaos if c.startswith("LG")]
+    )
 
     temp_pages, auto_removed_pages, removed_page_details = [], [], []
     detected_ad_owners, kept_ad_owners, removed_ad_owners = set(), set(), set()
@@ -1605,26 +1617,33 @@ def process_pdf_greece(input_pdf_path, selected_date):
         raw_len = len(text.strip())
         date_in_text = match_date_for_country(text, selected_date, "Greece")
 
-        # identity ALWAYS from the clean header/footer zone (never full body)
+        # identity ALWAYS from the clean header/footer zone (never body)
         zone_text = "\n".join(get_zone_lines(page))
         identity_text = zone_text
 
-        # Does the clean zone already contain a Greece AD/GEN/ENR identity?
-        zone_icao, _zone_major = _greece_owner(zone_text)
+        zone_icao, _zm = _greece_owner(zone_text)
         zone_has_generic = bool(re.search(r"\b(GEN|ENR|AD)\b", compact_spaces(zone_text)))
         complete_text_page = (
             raw_len >= 30 and date_in_text and (zone_icao or zone_has_generic)
         )
 
-        # OCR unless it's already a complete, dated, identified text page
-        if not complete_text_page:
+        if raw_len < 30:
+            # TRUE IMAGE chart -> identity + date come from corner OCR
             ocr_corners = _ocr_corners_text(page)
             if ocr_corners.strip():
-                identity_text = identity_text + "\n" + ocr_corners
+                identity_text = identity_text + "\n" + ocr_corners   # identity OK here
                 text = text + "\n" + ocr_corners
                 ocr_pages.append(page_index + 1)
 
+        elif not complete_text_page:
+            # hybrid/text page missing date -> OCR feeds DATE ONLY, never identity
+            ocr_corners = _ocr_corners_text(page)
+            if ocr_corners.strip():
+                text = text + "\n" + ocr_corners        # <-- NOT added to identity_text
+                ocr_pages.append(page_index + 1)
+
         detail = _greece_section_detail(page, text, identity_text)
+        
 
         section = detail["section"]
         owners = set(detail.get("owner_icaos") or set())
@@ -1658,17 +1677,24 @@ def process_pdf_greece(input_pdf_path, selected_date):
     final_pages = []
     for page_index, section, detail in temp_pages:
         major = detail.get("major")
-        owners = set(detail.get("owner_icaos") or set())
-        if section == "AD" and major == 2 and owners:   # master-filter ONLY AD 2
-            matched = {i for i in owners if i in allowed_icaos}
-            if matched:
-                kept_ad_owners.update(matched)
-                removed_ad_owners.update(owners - matched)
-            else:
-                removed_ad_owners.update(owners)
-                removed_page_details.append(
-                    {"page": page_index + 1, "category": get_clean_removed_category(detail)})
-                continue
+
+        if section == "AD" and major == 2:
+            owners = set(detail.get("owner_icaos") or set())
+            if not owners and detail.get("icao"):
+                owners = {str(detail["icao"]).strip().upper()}
+
+            if owners:
+                matched = {i for i in owners if i in allowed_icaos}
+                if matched:
+                    kept_ad_owners.update(matched)
+                    removed_ad_owners.update(owners - matched)
+                else:
+                    removed_ad_owners.update(owners)
+                    removed_page_details.append(
+                        {"page": page_index + 1,
+                         "category": get_clean_removed_category(detail)})
+                    continue
+
         final_pages.append((page_index, section, major))
 
     doc.close()
@@ -2081,7 +2107,8 @@ if st.session_state.processed:
                 st.caption(f"🔍 OCR used on {len(ocr_pages)} page(s): "
                            f"{', '.join(map(str, ocr_pages[:20]))}"
                            f"{' …' if len(ocr_pages) > 20 else ''}")
-
+        if st.session_state.processed_country == "Greece":
+            st.caption(f"LG codes in master: {st.session_state.get('greece_master_has_LG', [])}")
         detected_ad_owners = st.session_state.get("detected_ad_owners", set())
         kept_ad_owners = st.session_state.get("kept", set())
         removed_ad_owners = st.session_state.get("removed", set())

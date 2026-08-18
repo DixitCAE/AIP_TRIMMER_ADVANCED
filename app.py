@@ -727,6 +727,29 @@ def match_ad_asecna(line_text):
 
     return None
 
+def match_ad_france(line_text):
+    """
+    France (LFxx) AD-2 identifiers. ICAO always starts with LF:
+        AD-2.LFAY-1 / AD 2.LFOB-6 / AD-2.LFBZ
+        AD 2 LFAY DATA 01 / AD 2 LFOB ADC 01 / AD 2 LFBZ IAC RWY27 RNP
+        LFAY AD 2 (rare, icao-first)
+    Requiring LF also prevents the Universal false-positives where
+    English headings 'NAME AD 2' / 'AIDS AD 2' were grabbed as ICAOs.
+    """
+    t = compact_spaces(line_text)
+
+    patterns = [
+        r"\bAD\s*[-\.]?\s*2\s*[\.\-]\s*(LF[A-Z]{2})\b(?!\s*[\/~])",
+        r"\bAD\s*2\s+(LF[A-Z]{2})\b(?!\s*[\/~])",
+        r"\b(LF[A-Z]{2})\s+AD\s*2\b(?!\s*[\/~])",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, t)
+        if match:
+            return make_ad_detail(match, match.group(0), "France")
+
+    return None
 
 def match_ad_cocesna(line_text):
     """
@@ -774,7 +797,8 @@ def match_ad_universal(line_text):
         match_ad_brazil,
         match_ad_indonesia,
         match_ad_china,
-        match_ad_portugal
+        match_ad_portugal,
+        match_ad_france
     ]:
         detail = matcher(line_text)
         if detail:

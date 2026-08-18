@@ -213,7 +213,13 @@ def normalize_text(text):
 
 
 def compact_spaces(text):
-    return re.sub(r"\s+", " ", str(text).upper()).strip()
+    text = str(text).upper()
+    # Colombia (and some others) use the soft hyphen U+00AD between
+    # "AD 2 SKxx" and the page number instead of a real "-". It is NOT
+    # whitespace, so it survived and broke every AD/GEN/ENR hyphen regex.
+    # Normalize all unicode dash/hyphen variants to a plain ASCII hyphen.
+    text = re.sub(r"[\u00AD\u2010\u2011\u2012\u2013\u2014\u2015\u2212]", "-", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def normalize_for_admin(text):

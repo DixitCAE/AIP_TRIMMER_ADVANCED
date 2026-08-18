@@ -1590,7 +1590,7 @@ def _greece_section_detail(page, full_text, identity_text):
     # NEW: generic detector found an AD-2 airport owner (from the leakproof
     # title zone) -> promote it into owner_icaos so the master filter runs.
     gen_icao = detail.get("icao")
-    if detail.get("section") == "AD" and detail.get("major") == 2 and gen_icao:
+    if detail.get("section") == "AD" and detail.get("major") in (1, 2) and gen_icao:
         detail["owner_icaos"] = {str(gen_icao).strip().upper()}
 
     return detail
@@ -1648,7 +1648,7 @@ def process_pdf_greece(input_pdf_path, selected_date):
         section = detail["section"]
         owners = set(detail.get("owner_icaos") or set())
 
-        if section == "AD" and detail.get("major") == 2 and owners:
+        if section == "AD" and detail.get("major") in (1, 2) and owners:
             detected_ad_owners.update(owners)
             ad_detection_details.append(
                 {"page": page_index + 1, "icao": ", ".join(sorted(owners)),
@@ -1678,7 +1678,7 @@ def process_pdf_greece(input_pdf_path, selected_date):
     for page_index, section, detail in temp_pages:
         major = detail.get("major")
 
-        if section == "AD" and major == 2:
+        if section == "AD" and major in (1, 2):
             owners = set(detail.get("owner_icaos") or set())
             if not owners and detail.get("icao"):
                 owners = {str(detail["icao"]).strip().upper()}
@@ -1868,9 +1868,9 @@ if st.session_state.processed:
     ]
 
     if not st.session_state.selection_initialized:
-        st.session_state["toggle_GEN"] = False
-        st.session_state["toggle_ENR"] = False
-        st.session_state["toggle_AD"] = False
+        st.session_state["toggle_GEN"] = True
+        st.session_state["toggle_ENR"] = True
+        st.session_state["toggle_AD"] = True
 
         for key in list(st.session_state.keys()):
             if isinstance(key, str) and (
@@ -1960,28 +1960,32 @@ if st.session_state.processed:
                             selected_enr_majors.add(major)
 
     if "AD" in present_sections:
-        if st.toggle("AD", key="toggle_AD"):
+        if st.toggle(
+            "AD",
+            key="toggle_AD",
+            on_change=sync_ad_subsections
+        ):
             selected_sections.append("AD")
 
-        if present_ad_majors:
-            st.markdown(
-                """
-                <div class="ad-subsection-title">AD Major Sections</div>
-                """,
-                unsafe_allow_html=True
-            )
+            if present_ad_majors:
+                st.markdown(
+                    """
+                    <div class="enr-subsection-title">AD Major Sections</div>
+                    """,
+                    unsafe_allow_html=True
+                )
 
-            for major in present_ad_majors:
-                sub_key = f"toggle_AD_{major}"
+                for major in present_ad_majors:
+                    sub_key = f"toggle_AD_{major}"
 
-                sub_col_space, sub_col_toggle = st.columns([0.04, 0.96])
+                    sub_col_space, sub_col_toggle = st.columns([0.04, 0.96])
 
-                with sub_col_toggle:
-                    if st.toggle(
-                        f"AD {major}",
-                        key=sub_key
-                    ):
-                        selected_ad_majors.add(major)
+                    with sub_col_toggle:
+                        if st.toggle(
+                            f"AD {major}",
+                            key=sub_key
+                        ):
+                            selected_ad_majors.add(major)
                         
     if not selected_sections:
         st.stop()

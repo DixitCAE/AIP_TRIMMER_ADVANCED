@@ -751,6 +751,29 @@ def match_ad_france(line_text):
 
     return None
 
+def match_ad_bahamas(line_text):
+    """
+    Bahamas (MYxx) style: ICAO sits in the MIDDLE of the header, with a
+    subsection number before the page number:
+        AD 2 MYAM 1 - 3
+        AD 2 MYNN 1 - 13
+        AD 2 MYCA 1 - 6
+    Distinctive 'AD 2 <ICAO> <n> - <n>' shape — no other profile uses it,
+    so it can't collide with Brazil ('AD 2 SBCT - 10') etc.
+    """
+    t = compact_spaces(line_text)
+
+    patterns = [
+        r"\bAD\s*2\s+([A-Z]{4})\s+\d+\s*-\s*\d+\b(?!\s*[\/~])",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, t)
+        if match:
+            return make_ad_detail(match, match.group(0), "Bahamas")
+
+    return None
+
 def match_ad_cocesna(line_text):
     """
     COCESNA group profile.
@@ -791,6 +814,7 @@ def match_ad_universal(line_text):
     Use this only when country is unknown or user intentionally selects Universal.
     """
     for matcher in [
+        match_ad_bahamas,
         match_ad_asecna,
         match_ad_cocesna,
         match_ad_malaysia,
@@ -829,6 +853,9 @@ def match_airport_ad_title_for_country(line_text, country):
 
     if country == "COCESNA":
         return match_ad_cocesna(line_text)
+
+    if country == "Bahamas":
+        return match_ad_bahamas(line_text)
 
     return match_ad_universal(line_text)
 
@@ -1801,41 +1828,32 @@ if file:
 
         input_pdf_path = save_uploaded_pdf_to_disk(file)
 
-        plane_box = st.empty()
-        plane_box.markdown(
-            """
-            <div class="plane-animation">✈️</div>
-            """,
-            unsafe_allow_html=True
-        )
-
-        if country == "Chile":
-            (
-                total_pdf_pages, pages, detected_ad_owners, kept, removed,
-                auto_removed_pages, removed_page_details, ad_detection_details
-            ) = process_pdf_chile(
-                input_pdf_path,
-                date.strftime("%d %b %Y")
-            )
-        elif country == "Greece":
-            (
-                total_pdf_pages, pages, detected_ad_owners, kept, removed,
-                auto_removed_pages, removed_page_details, ad_detection_details
-            ) = process_pdf_greece(
-                input_pdf_path,
-                date.strftime("%d %b %Y")
-            )
-        else:
-            (
-                total_pdf_pages, pages, detected_ad_owners, kept, removed,
-                auto_removed_pages, removed_page_details, ad_detection_details
-            ) = process_pdf(
-                input_pdf_path,
-                date.strftime("%d %b %Y"),
-                country
-            )
-
-        plane_box.empty()
+        with st.spinner("Processing AIP… please wait"):
+            if country == "Chile":
+                (
+                    total_pdf_pages, pages, detected_ad_owners, kept, removed,
+                    auto_removed_pages, removed_page_details, ad_detection_details
+                ) = process_pdf_chile(
+                    input_pdf_path,
+                    date.strftime("%d %b %Y")
+                )
+            elif country == "Greece":
+                (
+                    total_pdf_pages, pages, detected_ad_owners, kept, removed,
+                    auto_removed_pages, removed_page_details, ad_detection_details
+                ) = process_pdf_greece(
+                    input_pdf_path,
+                    date.strftime("%d %b %Y")
+                )
+            else:
+                (
+                    total_pdf_pages, pages, detected_ad_owners, kept, removed,
+                    auto_removed_pages, removed_page_details, ad_detection_details
+                ) = process_pdf(
+                    input_pdf_path,
+                    date.strftime("%d %b %Y"),
+                    country
+                )
 
         st.session_state.update(
             {

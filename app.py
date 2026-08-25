@@ -439,7 +439,6 @@ def is_administrative_list_page(text, country):
         "CHECKLIST OF AIP PAGES",
         "PAGE TO BE REMOVED",
         "PAGE TO BE INSERTED",
-        "AIRAC AIP AMDT",
         "AMENDMENT CHECKLIST"
     ]
 
@@ -753,13 +752,8 @@ def match_ad_france(line_text):
 
 def match_ad_bahamas(line_text):
     """
-    Bahamas (MYxx) style: ICAO sits in the MIDDLE of the header, with a
-    subsection number before the page number:
-        AD 2 MYAM 1 - 3
-        AD 2 MYNN 1 - 13
-        AD 2 MYCA 1 - 6
-    Distinctive 'AD 2 <ICAO> <n> - <n>' shape — no other profile uses it,
-    so it can't collide with Brazil ('AD 2 SBCT - 10') etc.
+    Bahamas (MYxx): ICAO in the MIDDLE of the header, subsection before page:
+        AD 2 MYAM 1 - 3 / AD 2 MYNN 1 - 13 / AD 2 MYCA 1 - 6
     """
     t = compact_spaces(line_text)
 
@@ -853,9 +847,6 @@ def match_airport_ad_title_for_country(line_text, country):
 
     if country == "COCESNA":
         return match_ad_cocesna(line_text)
-
-    if country == "Bahamas":
-        return match_ad_bahamas(line_text)
 
     return match_ad_universal(line_text)
 
@@ -1130,6 +1121,12 @@ def process_pdf(input_pdf_path, selected_date, country):
         page = doc[page_index]
         text = page.get_text()
 
+        # Some pages (e.g. Bahamas big table pages) mangle the running-header
+        # date in plain get_text() reading order, so the contiguous date match
+        # fails. The clean header/footer zone lines still carry it, so append
+        # them for date matching only.
+        date_text = text + "\n" + "\n".join(get_zone_lines(page))
+
         section_detail = extract_section_detail_from_page(page, text, country)
         section = section_detail["section"]
 
@@ -1173,7 +1170,7 @@ def process_pdf(input_pdf_path, selected_date, country):
             )
             continue
 
-        if not match_date_for_country(text, selected_date, country):
+        if not match_date_for_country(date_text, selected_date, country):
             removed_page_details.append(
                 {
                     "page": page_index + 1,

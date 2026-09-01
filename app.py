@@ -146,6 +146,7 @@ COUNTRY_OPTIONS = ["Universal"] + sorted(
         "COCESNA",
         "Chile",
         "Greece",
+        "Australia (ERSA)",
     ],
     key=str.lower
 )
@@ -1525,6 +1526,148 @@ def process_pdf_chile(input_pdf_path, selected_date):
     return (total_pdf_pages, final_pages, detected_ad_owners, kept_ad_owners,
             removed_ad_owners, auto_removed_pages, removed_page_details,
             ad_detection_details)
+    
+# =============================================================
+# AUSTRALIA (ERSA) — fully isolated. NOT part of Universal.
+# ERSA publishes one FAC_<ICAO>_<DATE>.pdf per aerodrome.
+# The ICAO is in the FILENAME, so we filter by filename against
+# the master list, download the wanted ones, and MERGE into one PDF.
+# =============================================================
+import requests
+from io import BytesIO
+
+AU_BASE = "https://www.airservicesaustralia.com"
+
+def get_ersa_cycles():
+    """
+    Read the AIP index (pg=10) and pull the ERSA cycle dates straight from the
+    'En Route Supplement Australia (ERSA) (09 JUL 2026)' lines.
+    Returns compact codes like ['09JUL2026', '03SEP2026'] in page order
+    (current cycle first). Fully auto — rolls over on its own.
+    """
+    try:
+        s = requests.Session()
+        s.headers.update({"User-Agent": "Mozilla/5.0",
+                          "Referer": f"{AU_BASE}/aip/aip.asp"})
+        s.get(f"{AU_BASE}/aip/aip.asp", timeout=30)
+        html = s.get(f"{AU_BASE}/aip/aip.asp?pg=10", timeout=30).text.upper()
+
+        # anchor on the ERSA line, then grab the (DD MON YYYY) right after it
+        raw = re.findall(
+            r"ERSA\)[^(]*\((\d{1,2}\s*[A-Z]{3}\s*\d{4})\)", html
+        )
+
+        seen, ordered = set(), []
+        for d in raw:
+            compact = re.sub(r"\s+", "", d).upper()      # '09 JUL 2026' -> '09JUL2026'
+            # zero-pad day if needed: '9JUL2026' -> '09JUL2026'
+            m = re.match(r"(\d{1,2})([A-Z]{3})(\d{4})", compact)
+            if m:
+                compact = f"{int(m.group(1)):02d}{m.group(2)}{m.group(3)}"
+            if compact not in seen:
+                seen.add(compact)
+                try:
+                    datetime.strptime(compact, "%d%b%Y")   # validate
+                    ordered.append(compact)
+                except ValueError:
+                    pass
+        return ordered
+    except Exception:
+        return []
+    
+def _accept_airservices_terms(session):
+    """
+    Airservices gates AIP/ERSA downloads behind a terms-acceptance form.
+    Hitting the landing page then POSTing the accept form sets the cookie
+    that makes the FAC_*.pdf links return real PDFs instead of HTML.
+    """
+    # 1) land on the AIP page so ASP.NET / session cookies are issued
+    landing = session.get(f"{AU_BASE}/aip/aip.asp", timeout=30)
+
+    # 2) POST the common acceptance form values (covers the known gate variants)
+    for accept_url in (
+        f"{AU_BASE}/aip/aip.asp",
+        f"{AU_BASE}/aip/terms.asp",
+    ):
+        try:
+            session.post(
+                accept_url,
+                data={
+                    "Accept": "I Accept",
+                    "accept": "yes",
+                    "terms": "accept",
+                    "agree": "1",
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=30,
+                allow_redirects=True,
+            )
+        except Exception:
+            pass
+
+    return session
+
+
+def process_australia_ersa(cycle_date, output_pdf_path):
+    """
+    cycle_date example: '09JUL2026'
+    Returns (merged_path, kept_icaos, skipped_not_in_master, failed)
+    """
+    master = load_master()
+
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Referer": f"{AU_BASE}/aip/aip.asp",
+        "Accept": "text/html,application/xhtml+xml,application/pdf,*/*",
+    })
+
+    # ---- pass the terms gate first ----
+    _accept_airservices_terms(session)
+
+    # read the ERSA index for this cycle
+    index_url = f"{AU_BASE}/aip/aip.asp?pg=40&vdate={cycle_date}&ver=1"
+    try:
+        html = session.get(index_url, timeout=30).text
+    except Exception as e:
+        return output_pdf_path, [], [], [("index", str(e))]
+
+    pairs = re.findall(
+        rf"(/aip/current/ersa/FAC_([A-Z0-9]{{3,4}})_{cycle_date}\.pdf)", html
+    )
+
+    seen, links = set(), []
+    for path, code in pairs:
+        if path not in seen:
+            seen.add(path)
+            links.append((AU_BASE + path, code.upper()))
+
+    wanted = [(u, i) for (u, i) in links if i in master]
+    skipped_not_in_master = sorted({i for (_, i) in links if i not in master})
+
+    merged = fitz.open()
+    kept, failed = [], []
+
+    for url, icao in wanted:
+        try:
+            r = session.get(url, timeout=60)
+            ctype = r.headers.get("content-type", "").lower()
+            # accept either a proper PDF content-type OR a PDF magic header
+            if ctype.startswith("application/pdf") or r.content[:4] == b"%PDF":
+                doc = fitz.open("pdf", BytesIO(r.content))
+                merged.insert_pdf(doc)
+                doc.close()
+                kept.append(icao)
+            else:
+                failed.append((icao, "not a PDF (terms gate?)"))
+        except Exception as e:
+            failed.append((icao, str(e)))
+
+    if merged.page_count:
+        merged.save(output_pdf_path, garbage=4, deflate=True)
+    merged.close()
+
+    return output_pdf_path, sorted(kept), skipped_not_in_master, failed
 
 # =============================================================
 # GREECE — isolated profile (full-page text + OCR fallback)
@@ -1801,6 +1944,73 @@ country = st.selectbox(
     COUNTRY_OPTIONS,
     index=0
 )
+
+if country == "Australia (ERSA)":
+    st.info("Australia auto-builds a merged, master-filtered PDF from the ERSA site — no upload or merging needed.")
+
+    cycles = get_ersa_cycles()
+
+    def _pretty(c):
+        try:
+            return datetime.strptime(c, "%d%b%Y").strftime("%d %b %Y").upper()
+        except Exception:
+            return c
+
+    if cycles:
+        labels = {c: (f"{_pretty(c)}  (current)" if i == 0 else f"{_pretty(c)}  (next)")
+                  for i, c in enumerate(cycles)}
+        cycle = st.selectbox(
+            "ERSA cycle (auto-detected)",
+            cycles,
+            format_func=lambda c: labels.get(c, _pretty(c)),
+        )
+    else:
+        st.warning("Couldn't auto-detect the cycle. Enter it manually (e.g. 09JUL2026).")
+        cycle = st.text_input("ERSA cycle", value="")
+
+    cycle = re.sub(r"\s+", "", str(cycle)).upper()
+
+    if st.button("🚀 Fetch & Merge ERSA"):
+        cleanup_existing_pdf_files()
+        out_path = make_temp_pdf_path("ersa_merged")
+
+        with st.spinner("Downloading & merging ERSA aerodromes…"):
+            merged_path, kept, skipped, failed = process_australia_ersa(cycle, out_path)
+
+        st.session_state.update({
+            "input_pdf_path": merged_path,
+            "output_pdf_path": merged_path,
+            "processed_country": "Australia",
+            "processed": True,
+            "au_kept": kept,
+            "au_skipped": skipped,
+            "au_failed": failed,
+            "au_cycle": cycle,
+        })
+
+    # Persist results across reruns
+    if st.session_state.get("processed_country") == "Australia" and st.session_state.get("output_pdf_path"):
+        kept = st.session_state.get("au_kept", [])
+        skipped = st.session_state.get("au_skipped", [])
+        failed = st.session_state.get("au_failed", [])
+        merged_path = st.session_state["output_pdf_path"]
+
+        if kept:
+            st.success(f"Merged {len(kept)} aerodromes into one PDF.")
+            st.write(f"Kept (in master): {', '.join(kept[:30])}{' …' if len(kept)>30 else ''}")
+            st.write(f"Skipped (not in master): {len(skipped)}")
+        else:
+            st.error("No aerodromes were merged — likely the terms gate blocked the download. See below.")
+        if failed:
+            st.warning(f"Failed ({len(failed)}): {failed[:10]}")
+
+        if os.path.exists(merged_path):
+            with open(merged_path, "rb") as f:
+                st.download_button("⬇ Download merged ERSA PDF", f,
+                                   file_name=f"ERSA_merged_{st.session_state.get('au_cycle','')}.pdf",
+                                   mime="application/pdf")
+
+    st.stop()
 
 file = st.file_uploader("Upload PDF", type=["pdf"])
 date = st.date_input("Effective Date")

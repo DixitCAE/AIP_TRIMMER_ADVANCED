@@ -264,13 +264,22 @@ def normalize_for_admin(text):
 def build_normal_date_patterns(selected_date):
     dt = datetime.strptime(selected_date, "%d %b %Y")
 
-    month = dt.strftime("%b").upper()
+    month = dt.strftime("%b").upper()   # e.g. "SEP"
+
+    # Brazil (DECEA) and a few others abbreviate September as "SEPT"
+    # (4 letters) instead of the ICAO-standard "SEP". Include both so the
+    # date still matches. Purely additive — only affects September.
+    months = [month]
+    if month == "SEP":
+        months.append("SEPT")
+
     days = [str(dt.day), f"{dt.day:02}"]
     years = [str(dt.year), str(dt.year)[-2:]]
 
     return [
-        f"{day}{month}{year}"
+        f"{day}{m}{year}"
         for day in days
+        for m in months
         for year in years
     ]
 

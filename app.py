@@ -1616,6 +1616,30 @@ def _accept_airservices_terms(session):
 
     return session
 
+def _accept_ersa_terms(session):
+    """
+    Click-through the Airservices 'I Agree' copyright gate so the PENDING
+    cycle (e.g. 03 SEP) FAC PDFs return real PDFs instead of the agree page.
+    """
+    # land first so the session cookie is issued
+    try:
+        session.get(f"{AU_BASE}/aip/aip.asp", timeout=30)
+    except Exception:
+        pass
+
+    # POST the "I Agree" form (covers the known button field variants)
+    for data in (
+        {"btnAgree": "I Agree"},
+        {"Agree": "I Agree"},
+        {"agree": "I Agree", "Accept": "I Agree"},
+    ):
+        try:
+            session.post(f"{AU_BASE}/aip/aip.asp", data=data,
+                         timeout=30, allow_redirects=True)
+        except Exception:
+            pass
+
+    return session
 
 def process_australia_ersa(cycle_date, output_pdf_path):
     """
@@ -1625,25 +1649,30 @@ def process_australia_ersa(cycle_date, output_pdf_path):
     master = load_master()
 
     session = requests.Session()
-    session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        "Referer": f"{AU_BASE}/aip/aip.asp",
-        "Accept": "text/html,application/xhtml+xml,application/pdf,*/*",
-    })
+    # pass the "I Agree" copyright gate (needed for the pending/next cycle)
+    _accept_ersa_terms(session)
 
     # ---- pass the terms gate first ----
     _accept_airservices_terms(session)
 
-    # read the ERSA index for this cycle
-    index_url = f"{AU_BASE}/aip/aip.asp?pg=40&vdate={cycle_date}&ver=1"
-    try:
-        html = session.get(index_url, timeout=30).text
-    except Exception as e:
-        return output_pdf_path, [], [], [("index", str(e))]
+    # The CURRENT cycle uses ver=1, the NEXT cycle uses ver=2. Try both and
+    # keep whichever page actually has FAC links for this cycle_date.
+    pairs = []
+    for ver in ("1", "2", "3"):
+        index_url = f"{AU_BASE}/aip/aip.asp?pg=40&vdate={cycle_date}&ver={ver}"
+        try:
+            html = session.get(index_url, timeout=30).text
+        except Exception:
+            continue
 
-    pairs = re.findall(
-        rf"(/aip/current/ersa/FAC_([A-Z0-9]{{3,4}})_{cycle_date}\.pdf)", html
-    )
+        pairs = re.findall(
+            rf"(/aip/[^\"'>\s]*?ersa/FAC_([A-Z0-9]{{3,4}})_{cycle_date}\.pdf)", html
+        )
+        if pairs:
+            break   # found the right version page
+
+    if not pairs:
+        return output_pdf_path, [], [], [("index", "no FAC links found for this cycle")]
 
     seen, links = set(), []
     for path, code in pairs:

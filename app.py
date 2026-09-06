@@ -147,6 +147,8 @@ COUNTRY_OPTIONS = ["Universal"] + sorted(
         "Chile",
         "Greece",
         "Australia (ERSA)",
+        "Russia",
+        "Argentina",
     ],
     key=str.lower
 )
@@ -1708,6 +1710,199 @@ def process_australia_ersa(cycle_date, output_pdf_path):
     return output_pdf_path, sorted(kept), skipped_not_in_master, failed
 
 # =============================================================
+# RUSSIA (caica.ru) — fully isolated. NOT part of Universal.
+# menueng.htm ships ALL ../amdt/*.pdf links in raw HTML, so plain
+# requests works (no JS / Playwright / pasting). Streamlit-safe.
+# =============================================================
+RU_MENU_URL  = "http://www.caica.ru/ANI_Official/Aip/html/menueng.htm"
+RU_AMDT_BASE = "http://www.caica.ru/ANI_Official/Aip/amdt/"
+
+def process_russia_auto(output_pdf_path):
+    """
+    Fetch menueng.htm, keep 2-AD2 (in master) + ENR 3.1/3.2/1.11, merge.
+    Returns (path, kept, skipped, enr_kept, failed, debug)
+    """
+    master = load_master()
+    session = requests.Session()
+    session.headers.update({"User-Agent": "Mozilla/5.0", "Referer": RU_MENU_URL})
+
+    debug = {}
+    try:
+        resp = session.get(RU_MENU_URL, timeout=30, allow_redirects=True)
+        html = resp.text
+        debug["status"] = resp.status_code
+        debug["html_len"] = len(html)
+    except Exception as e:
+        return output_pdf_path, [], [], [], [("menu", str(e))], {"error": str(e)}
+
+    files = re.findall(r'amdt/([A-Za-z0-9.,_\-]+\.pdf)', html, re.I)
+    files = list(dict.fromkeys(files))
+    debug["links_found"] = len(files)
+    debug["sample"] = files[:8]
+
+    all_links = [RU_AMDT_BASE + f for f in files]
+
+    # Real caica.ru files: 2-ad2-rus-<ICAO>-<pages>.pdf  (volume 2 only)
+    ad2_icao_re = re.compile(r"^2-ad2-(?:rus-)?([a-z]{4})\b", re.I)
+    enr_keep_re = re.compile(r"^enr[\-_ ]?(1\.11|3\.1|3\.2)", re.I)
+
+    candidates, skipped_icao = [], set()
+    for url in all_links:
+        fname = url.rsplit("/", 1)[-1].lower()
+        if enr_keep_re.search(fname):
+            candidates.append((url, f"ENR:{fname}"))
+        else:
+            m = ad2_icao_re.search(fname)
+            if m:
+                icao = m.group(1).upper()
+                if icao in master:
+                    candidates.append((url, icao))
+                else:
+                    skipped_icao.add(icao)
+
+    debug["candidates"] = len(candidates)
+    debug["sample_icaos"] = [t for _, t in candidates[:12]]
+    debug["skipped_icaos"] = sorted(skipped_icao)[:20]
+
+    merged = fitz.open()
+    kept, enr_kept, failed = [], [], []
+    for url, tag in candidates:
+        try:
+            r = session.get(url, timeout=60)
+            if r.content[:4] != b"%PDF":
+                failed.append((tag, "not a PDF"))
+                continue
+            doc = fitz.open("pdf", BytesIO(r.content))
+            merged.insert_pdf(doc)
+            doc.close()
+            if tag.startswith("ENR:"):
+                enr_kept.append(tag[4:])
+            else:
+                kept.append(tag)
+        except Exception as e:
+            failed.append((tag, str(e)))
+
+    if merged.page_count:
+        merged.save(output_pdf_path, garbage=4, deflate=True)
+    merged.close()
+
+    return (output_pdf_path, sorted(set(kept)), sorted(skipped_icao),
+            sorted(set(enr_kept)), failed, debug)
+
+# =============================================================
+# ARGENTINA (ANAC) — isolated. NOT part of Universal.
+# ais.anac.gob.ar/amdt renders the latest AMDT's /descarga links.
+# Section codes (GEN/ENR/AD) are language-independent → no translate needed.
+# =============================================================
+AR_BASE     = "https://ais.anac.gob.ar"
+AR_AMDT_URL = "https://ais.anac.gob.ar/amdt"
+
+def process_argentina_auto(output_pdf_path):
+    """
+    Keep GEN 0.1, ENR 1.11, ENR 3.1, ENR 3.2 + AD 2.x (ICAO in master), merge.
+    Returns (path, kept_ad, kept_sec, skipped, failed, debug)
+    """
+    master = load_master()
+    session = requests.Session()
+    session.headers.update({"User-Agent": "Mozilla/5.0", "Referer": AR_AMDT_URL})
+
+    debug = {}
+    try:
+        # 1) Load base page (sets cookies) and read the latest amendment id.
+        base_html = session.get(AR_AMDT_URL, timeout=30, allow_redirects=True).text
+
+        # Newest amendment = first real <option value="NN"> in the dropdown.
+        # (skip the "Select an amendment" placeholder which has no numeric value)
+        ids = re.findall(r'<option[^>]*value="(\d+)"', base_html)
+        if not ids:
+            return (output_pdf_path, [], [], [],
+                    [("id", "could not read amendment id from page")],
+                    {"error": "no amendment id found", "html_len": len(base_html)})
+
+        amdt_id = str(max(int(x) for x in ids))   # highest id = newest                  # dropdown lists newest first
+        debug["amdt_id"] = amdt_id
+
+        amdt = re.search(r"AMDT\s*AIRAC\s*\d{1,2}\s*/\s*\d{4}", base_html, re.I)
+        debug["amdt_label"] = amdt.group(0) if amdt else "unknown"
+
+        # 2) The AJAX table lives at /amdt/<id> (confirmed: GET /amdt/48).
+        resp = session.get(f"{AR_AMDT_URL}/{amdt_id}", timeout=30,
+                           headers={"X-Requested-With": "XMLHttpRequest"})
+        html = resp.text
+        debug["status"] = resp.status_code
+        debug["html_len"] = len(html)
+    except Exception as e:
+        return output_pdf_path, [], [], [], [("page", str(e))], {"error": str(e)}
+
+    rows = re.findall(r'href="(/descarga/aip-[0-9a-fA-F]+)"[^>]*>(.*?)</a>',
+                      html, re.I | re.S)
+
+    def _clean(t):
+        return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", t)).strip()
+
+    rows = [(h, _clean(t)) for h, t in rows]
+    debug["links_found"] = len(rows)
+    debug["sample"] = [t for _, t in rows[:8]]
+
+    # Requested non-AD sections. GEN 0.1 kept only if it actually exists.
+    wanted = {
+        "GEN 0.1":  re.compile(r"\bGEN\s*0\.1(?!\d)", re.I),
+        "ENR 1.11": re.compile(r"\bENR\s*1\.11(?!\d)", re.I),
+        "ENR 3.1":  re.compile(r"\bENR\s*3\.1(?!\d)", re.I),
+        "ENR 3.2":  re.compile(r"\bENR\s*3\.2(?!\d)", re.I),
+    }
+    ad2_re = re.compile(r"\b([A-Z]{4})\s*-\s*AD\s*2\b")
+
+    candidates, skipped_icao, seen, found_sec = [], set(), set(), set()
+    for href, txt in rows:
+        if href in seen:
+            continue
+        seen.add(href)
+        url = AR_BASE + href
+
+        hit = next((name for name, rx in wanted.items() if rx.search(txt)), None)
+        if hit:
+            candidates.append((url, "SEC:" + hit))
+            found_sec.add(hit)
+            continue
+
+        m = ad2_re.search(txt)
+        if m:
+            icao = m.group(1).upper()
+            if icao in master:
+                candidates.append((url, icao))
+            else:
+                skipped_icao.add(icao)
+
+    debug["candidates"] = len(candidates)
+    debug["sections_missing"] = sorted(set(wanted) - found_sec)
+
+    merged = fitz.open()
+    kept_ad, kept_sec, failed = [], [], []
+    for url, tag in candidates:
+        try:
+            r = session.get(url, timeout=90)
+            if r.content[:4] != b"%PDF":
+                failed.append((tag, "not a PDF"))
+                continue
+            doc = fitz.open("pdf", BytesIO(r.content))
+            merged.insert_pdf(doc)
+            doc.close()
+            if tag.startswith("SEC:"):
+                kept_sec.append(tag[4:])
+            else:
+                kept_ad.append(tag)
+        except Exception as e:
+            failed.append((tag, str(e)))
+
+    if merged.page_count:
+        merged.save(output_pdf_path, garbage=4, deflate=True)
+    merged.close()
+
+    return (output_pdf_path, sorted(set(kept_ad)), sorted(set(kept_sec)),
+            sorted(skipped_icao), failed, debug)
+
+# =============================================================
 # GREECE — isolated profile (full-page text + OCR fallback)
 # One airport per page. Identity = "AD 2-LGxx-..." (charts) or
 # "AD 2 LGxx-N" (text footer). Effective date is in the FOOTER on
@@ -1982,6 +2177,103 @@ country = st.selectbox(
     COUNTRY_OPTIONS,
     index=0
 )
+
+if country == "Russia":
+    st.info("Russia: auto-reads caica.ru and merges 2-AD2 (in master) + "
+            "ENR 3.1/3.2/1.11 into one PDF.")
+
+    if st.button("🚀 Fetch & Merge Russia"):
+        cleanup_existing_pdf_files()
+        out_path = make_temp_pdf_path("russia_merged")
+        with st.spinner("Reading AMDT list, downloading & merging…"):
+            mp, kept, skipped, enr_kept, failed, debug = process_russia_auto(out_path)
+
+        if not (kept or enr_kept):
+            mp = None
+
+        st.session_state.update({
+            "input_pdf_path": mp, "output_pdf_path": mp,
+            "processed_country": "Russia", "processed": True,
+            "ru_kept": kept or [], "ru_skipped": skipped or [],
+            "ru_enr": enr_kept or [], "ru_failed": failed or [],
+        })
+
+    if st.session_state.get("processed_country") == "Russia":
+        kept     = st.session_state.get("ru_kept", []) or []
+        enr_kept = st.session_state.get("ru_enr", []) or []
+        skipped  = st.session_state.get("ru_skipped", []) or []
+        mp       = st.session_state.get("output_pdf_path")
+
+        if kept or enr_kept:
+            st.success(f"Merged {len(kept)} 2-AD2 airport(s) + {len(enr_kept)} ENR file(s).")
+            st.write("**AD2 kept:** " + (", ".join(kept) if kept else "—"))
+            st.write("**ENR kept:** " + (", ".join(enr_kept) if enr_kept else "—"))
+            if mp and os.path.exists(mp):
+                with open(mp, "rb") as f:
+                    st.download_button("⬇ Download merged Russia PDF", f,
+                                       file_name="Russia_merged.pdf",
+                                       mime="application/pdf")
+        else:
+            st.warning("Nothing matched — none of the detected 2-AD2 ICAOs are in the master list.")
+
+        if skipped:
+            with st.expander(f"Skipped (not in master): {len(skipped)}"):
+                st.write(", ".join(skipped))
+
+    st.stop()
+
+if country == "Argentina":
+    st.info("Argentina (ANAC): auto-reads ais.anac.gob.ar/amdt (latest AMDT) and merges "
+            "GEN 0.1, ENR 1.11, ENR 3.1, ENR 3.2 + AD 2 (in master) into one PDF. "
+            "No translation needed — section codes are language-independent.")
+
+    if st.button("🚀 Fetch & Merge Argentina"):
+        cleanup_existing_pdf_files()
+        out_path = make_temp_pdf_path("argentina_merged")
+        with st.spinner("Reading AMDT list, downloading & merging…"):
+            mp, kept_ad, kept_sec, skipped, failed, debug = process_argentina_auto(out_path)
+
+        if not (kept_ad or kept_sec):
+            mp = None
+
+        st.session_state.update({
+            "input_pdf_path": mp, "output_pdf_path": mp,
+            "processed_country": "Argentina", "processed": True,
+            "ar_kept_ad": kept_ad or [], "ar_kept_sec": kept_sec or [],
+            "ar_skipped": skipped or [], "ar_amdt": debug.get("amdt_label", ""),
+            "ar_links": debug.get("links_found", 0),
+            "ar_missing": debug.get("sections_missing", []),
+        })
+
+    if st.session_state.get("processed_country") == "Argentina":
+        kept_ad  = st.session_state.get("ar_kept_ad", []) or []
+        kept_sec = st.session_state.get("ar_kept_sec", []) or []
+        skipped  = st.session_state.get("ar_skipped", []) or []
+        missing  = st.session_state.get("ar_missing", []) or []
+        mp       = st.session_state.get("output_pdf_path")
+        amdt     = st.session_state.get("ar_amdt", "")
+
+        if kept_ad or kept_sec:
+            st.success(f"{amdt} — merged {len(kept_ad)} AD2 airport(s) + "
+                       f"{len(kept_sec)} section file(s).")
+            st.write("**AD2 kept:** " + (", ".join(kept_ad) if kept_ad else "—"))
+            st.write("**Sections kept:** " + (", ".join(kept_sec) if kept_sec else "—"))
+            if missing:
+                st.caption("Requested sections not in this AMDT: " + ", ".join(missing))
+            if mp and os.path.exists(mp):
+                with open(mp, "rb") as f:
+                    st.download_button("⬇ Download merged Argentina PDF", f,
+                                       file_name="Argentina_merged.pdf",
+                                       mime="application/pdf")
+        else:
+            st.warning(f"Nothing matched. (links found on page: "
+                       f"{st.session_state.get('ar_links', 0)})")
+
+        if skipped:
+            with st.expander(f"Skipped AD2 (not in master): {len(skipped)}"):
+                st.write(", ".join(skipped))
+
+    st.stop()
 
 if country == "Australia (ERSA)":
     st.info("Australia auto-builds a merged, master-filtered PDF from the ERSA site — no upload or merging needed.")

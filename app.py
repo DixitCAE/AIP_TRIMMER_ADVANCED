@@ -345,6 +345,33 @@ def match_date_for_country(text, selected_date, country):
 
     return match_date_standard(text, selected_date)
 
+# =============================
+# SPANISH DATE MATCHER (Argentina)
+# =============================
+SPANISH_MONTHS = {
+    1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL",
+    5: "MAYO", 6: "JUNIO", 7: "JULIO", 8: "AGOSTO",
+    9: "SEPTIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE",
+}
+
+def build_spanish_date_patterns(selected_date):
+    dt = datetime.strptime(selected_date, "%d %b %Y")
+    month = SPANISH_MONTHS[dt.month]                 # e.g. "JUNIO"
+    days = [str(dt.day), f"{dt.day:02}"]             # "11" and "11"; "1" and "01"
+    years = [str(dt.year), str(dt.year)[-2:]]        # "2026" and "26"
+    return [f"{d}{month}{y}" for d in days for y in years]
+
+def match_date_argentina(text, selected_date):
+    """
+    Argentina pages print the effective date at the BOTTOM in Spanish
+    (e.g. '11 JUNIO 2026'). Verified against the merged AIP: every page has a
+    footer date, and matching Spanish month names cleanly separates the 11
+    distinct effective dates with zero false positives. English/ICAO forms are
+    included as a fallback.
+    """
+    tc = normalize_text(text)   # "…11JUNIO2026…"
+    pats = build_spanish_date_patterns(selected_date) + build_normal_date_patterns(selected_date)
+    return any(p in tc for p in pats)
 
 # =============================
 # HEADER / FOOTER EXTRACTION
@@ -1343,6 +1370,28 @@ def build_pdf_to_file(input_pdf_path, selected_page_tuples, output_pdf_path):
 
     return True, page_count
 
+def filter_merged_pdf_by_date(input_path, selected_date, output_path, matcher):
+    """
+    Keep only pages of an already-merged PDF whose text matches `selected_date`
+    (using the provided country matcher). The date may sit in the footer, so
+    the clean header/footer zone lines are appended for matching.
+    Returns (ok, kept_page_numbers).
+    """
+    doc = fitz.open(input_path)
+    out = fitz.open()
+    kept = []
+    for i in range(len(doc)):
+        text = doc[i].get_text()
+        date_text = text + "\n" + "\n".join(get_zone_lines(doc[i]))
+        if matcher(date_text, selected_date):
+            out.insert_pdf(doc, from_page=i, to_page=i)
+            kept.append(i + 1)
+    ok = out.page_count > 0
+    if ok:
+        out.save(output_path, garbage=4, deflate=True)
+    out.close()
+    doc.close()
+    return ok, kept
 
 def prepare_output_pdf(selected_page_tuples, selection_signature):
     input_pdf_path = st.session_state.get("input_pdf_path")
@@ -2277,9 +2326,45 @@ if country == "Argentina":
                 st.caption("Requested sections not in this AMDT: " + ", ".join(missing))
             if mp and os.path.exists(mp):
                 with open(mp, "rb") as f:
-                    st.download_button("⬇ Download merged Argentina PDF", f,
+                    st.download_button("⬇ Download FULL merged Argentina PDF", f,
                                        file_name="Argentina_merged.pdf",
                                        mime="application/pdf")
+
+            # ---- Stage 2: filter the merged PDF by effective date ----
+            st.markdown("---")
+            st.subheader("✂️ Keep only pages for an effective date")
+            st.caption("Argentina mixes effective dates. Dates are printed at the "
+                       "bottom of each page in Spanish (e.g. 11 JUNIO 2026).")
+
+            ar_date = st.date_input("Effective Date", key="ar_filter_date")
+
+            if st.button("Filter merged PDF by date"):
+                if mp and os.path.exists(mp):
+                    out_path = make_temp_pdf_path("argentina_filtered")
+                    ok, kept_pages = filter_merged_pdf_by_date(
+                        mp, ar_date.strftime("%d %b %Y"),
+                        out_path, match_date_argentina
+                    )
+                    st.session_state["ar_filtered_path"] = out_path if ok else None
+                    st.session_state["ar_filtered_pages"] = kept_pages
+                    st.session_state["ar_filtered_date"] = ar_date.strftime("%d %b %Y")
+                else:
+                    st.warning("Merged PDF not found. Fetch & merge again first.")
+
+            fpath  = st.session_state.get("ar_filtered_path")
+            fpages = st.session_state.get("ar_filtered_pages", [])
+            fdate  = st.session_state.get("ar_filtered_date", "")
+
+            if fpath and os.path.exists(fpath):
+                st.success(f"{len(fpages)} page(s) match {fdate}.")
+                with open(fpath, "rb") as f:
+                    st.download_button("⬇ Download date-filtered PDF", f,
+                                       file_name=f"Argentina_{fdate.replace(' ', '')}.pdf",
+                                       mime="application/pdf")
+            elif st.session_state.get("ar_filtered_date"):
+                st.warning(f"No pages matched {fdate}. "
+                           "Check the date — Spanish months are supported "
+                           "(ENERO…DICIEMBRE).")
         else:
             st.warning(f"Nothing matched. (links found on page: "
                        f"{st.session_state.get('ar_links', 0)})")

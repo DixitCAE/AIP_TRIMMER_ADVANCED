@@ -1376,12 +1376,16 @@ def prepare_output_pdf(selected_page_tuples, selection_signature):
 
 # =============================================================
 # CHILE — fully isolated parser (does NOT touch other logic)
-# Chile prints minor AD (AD 3.1) & heliports (AD 3.2) as regional
-# tables: many airports per page, ICAO in the page BODY.
-# Big airports (AD 2) keep the ICAO in the running header.
+#
+# Master (MAL) filter policy:
+#   - EVERY AD 2 page (main + all subsections AD 2.0/2.A/2.B/2.M ...)
+#     -> keep only if its header ICAO is in the master list
+#   - AD 3.1 (minor aerodromes) & AD 3.2 (heliports) -> kept as-is
+#
+# No hardcoded zone blocklist needed: zone/FIR codes (SCFZ, SCEZ, ...)
+# simply aren't in the master list, so they get dropped automatically.
 # =============================================================
 CHILE_ICAO_RE = re.compile(r"\b(SC[A-Z]{2}|SH[A-Z]{2})\b")
-CHILE_NON_AIRPORT_CODES = {"SCEZ", "SCFZ", "SCTZ", "SCIZ", "SCCZ"}
 CHILE_HEADER_MARKERS = ("AIP-CHILE", "AIS-CHILE")
 
 
@@ -1389,8 +1393,6 @@ def _chile_extract_icaos(page_text, sh_ok):
     codes = set()
     for match in CHILE_ICAO_RE.finditer(str(page_text).upper()):
         code = match.group(1)
-        if code in CHILE_NON_AIRPORT_CODES:
-            continue
         if code.startswith("SH") and not sh_ok:
             continue
         codes.add(code)
@@ -1404,13 +1406,16 @@ def _chile_lines(page_text):
 def _chile_identity(page_text):
     lines = _chile_lines(page_text)
 
+    # A page's identity must be a REAL running-header page-id ("ENR 5.1-9",
+    # "AD 3.1-26", "AD 2.0-5", "AD 2 SCIE-5"), never a loose body cross-ref
+    # like "...AIP-CHILE, ENR 7 ...".
     header_rules = [
-        ("AD2",    r"AD\s*2\s+(SC[A-Z]{2})\s*-?\s*\d"),
-        ("AD2SUB", r"AD\s*2\s*\.\s*\d"),
-        ("AD3",    r"AD\s*3\s*\.\s*(\d)"),
-        ("ADX",    r"AD\s*([01])\s*\."),
-        ("GEN",    r"\b(GEN)\s*(\d+)"),
-        ("ENR",    r"\b(ENR)\s*(\d+)"),
+        ("AD2",    r"AD\s*2\s+(SC[A-Z]{2})\s*-?\s*\d"),   # AD 2 SCIE-5
+        ("AD2SUB", r"AD\s*2\s*\.\s*\d+\s*-\s*\d"),         # AD 2.0-5 (ICAO elsewhere on line)
+        ("AD3",    r"AD\s*3\s*\.\s*(\d)\s*-\s*\d"),
+        ("ADX",    r"AD\s*([01])\s*\.\s*\d+\s*-\s*\d"),
+        ("GEN",    r"(GEN)\s*(\d+)\.\d+\s*-\s*\d"),
+        ("ENR",    r"(ENR)\s*(\d+)\.\d+\s*-\s*\d"),
     ]
     for line in lines:
         if not any(mk in line for mk in CHILE_HEADER_MARKERS):
@@ -1418,7 +1423,7 @@ def _chile_identity(page_text):
         for kind, pat in header_rules:
             m = re.search(pat, line)
             if m:
-                return kind, m
+                return kind, m, line
 
     standalone_rules = [
         ("AD3",    r"^AD\s*3\s*\.\s*(\d)\s*-\s*\d"),
@@ -1432,13 +1437,13 @@ def _chile_identity(page_text):
         for kind, pat in standalone_rules:
             m = re.match(pat, line)
             if m:
-                return kind, m
+                return kind, m, line
 
-    return None, None
+    return None, None, None
 
 
 def _chile_section_detail(page_text):
-    kind, m = _chile_identity(page_text)
+    kind, m, line = _chile_identity(page_text)
 
     if not kind:
         return {"section": None, "major": None, "raw": None, "icao": None,
@@ -1448,6 +1453,16 @@ def _chile_section_detail(page_text):
         icao = m.group(1).upper()
         return {"section": "AD", "major": 2, "raw": m.group(0), "icao": icao,
                 "owner_icaos": {icao}, "parser": "Chile-AD2"}
+
+    if kind == "AD2SUB":
+        # AD 2.x subsection page (e.g. "AD 2.0-5 SCFZ"). The ICAO sits
+        # elsewhere on the same header line. Pull it from the header first;
+        # fall back to the body if the header has none.
+        owners = _chile_extract_icaos(line, sh_ok=True)
+        if not owners:
+            owners = _chile_extract_icaos(page_text, sh_ok=True)
+        return {"section": "AD", "major": 2, "raw": m.group(0), "icao": None,
+                "owner_icaos": owners, "parser": "Chile-AD2gen"}
 
     if kind == "AD3":
         sub = int(m.group(1))
@@ -1461,10 +1476,6 @@ def _chile_section_detail(page_text):
     if kind == "ADX":
         return {"section": "AD", "major": int(m.group(1)), "raw": m.group(0),
                 "icao": None, "owner_icaos": set(), "parser": "Chile-ADadmin"}
-
-    if kind == "AD2SUB":
-        return {"section": "AD", "major": 2, "raw": m.group(0), "icao": None,
-                "owner_icaos": set(), "parser": "Chile-AD2gen"}
 
     section, major = m.group(1), int(m.group(2))
     return {"section": section, "major": major, "raw": m.group(0), "icao": None,
@@ -1516,12 +1527,15 @@ def process_pdf_chile(input_pdf_path, selected_date):
     final_pages = []
     for page_index, section, detail in temp_pages:
         major = detail.get("major")
-        if section == "AD" and major == 2:
+        parser = detail.get("parser") or ""
+
+        # Master-list filter applies to EVERY AD 2 page — main airport pages
+        # (Chile-AD2) AND all subsections (Chile-AD2gen). AD 3.1 / AD 3.2
+        # are exempt and kept as-is.
+        is_ad2_family = parser in ("Chile-AD2", "Chile-AD2gen")
+
+        if section == "AD" and major == 2 and is_ad2_family:
             owners = set(detail.get("owner_icaos") or set())
-            if not owners:
-                removed_page_details.append(
-                    {"page": page_index + 1, "category": get_clean_removed_category(detail)})
-                continue
             matched = {i for i in owners if i in allowed_icaos}
             if matched:
                 kept_ad_owners.update(matched)
@@ -1531,6 +1545,7 @@ def process_pdf_chile(input_pdf_path, selected_date):
                 removed_page_details.append(
                     {"page": page_index + 1, "category": get_clean_removed_category(detail)})
                 continue
+
         final_pages.append((page_index, section, major))
 
     doc.close()

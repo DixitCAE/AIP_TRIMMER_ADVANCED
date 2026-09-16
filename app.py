@@ -1806,9 +1806,13 @@ def process_russia_auto(output_pdf_path):
 
     all_links = [RU_AMDT_BASE + f for f in files]
 
-    # Real caica.ru files: 2-ad2-rus-<ICAO>-<pages>.pdf  (volume 2 only)
-    ad2_icao_re = re.compile(r"^2-ad2-(?:rus-)?([a-z]{4})\b", re.I)
-    enr_keep_re = re.compile(r"^enr[\-_ ]?(1\.11|3\.1|3\.2)", re.I)
+    # AD2 volumes 1, 2 and 3 only — volume 4 is NOT required.
+    # Filenames look like: 1-ad2-rus-uhbb-007-008.pdf / 2-ad2-uuee-...pdf
+    ad2_icao_re = re.compile(r"^([123])-ad2-(?:rus-)?([a-z]{4})\b", re.I)
+
+    # ENR 1.11 / 3.1 / 3.2 and any of their subsections (e.g. enr3.1.1).
+    # (?!\d) stops 3.1 from also matching 3.10 etc.
+    enr_keep_re = re.compile(r"^enr[\-_ ]?(1\.11|3\.1|3\.2)(?!\d)", re.I)
 
     candidates, skipped_icao = [], set()
     for url in all_links:
@@ -1818,9 +1822,9 @@ def process_russia_auto(output_pdf_path):
         else:
             m = ad2_icao_re.search(fname)
             if m:
-                icao = m.group(1).upper()
+                icao = m.group(2).upper()
                 if icao in master:
-                    candidates.append((url, icao))
+                    candidates.append((url, f"{icao} (v{m.group(1)})"))
                 else:
                     skipped_icao.add(icao)
 

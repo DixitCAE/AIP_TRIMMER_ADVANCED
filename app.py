@@ -33,86 +33,193 @@ else:
 st.set_page_config(
     page_title="AIP Trimmer",
     page_icon="✈️",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
-
 # =============================
-# PREMIUM UI CSS
+# MODERN UI CSS
 # =============================
 st.markdown(
     """
     <style>
-        .main {
-            background-color: #f7f9fc;
-        }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
-        .block-container {
-            padding-top: 2rem;
-            padding-bottom: 2rem;
-        }
+    html, body, [class*="css"] { font-family: 'Inter', 'Segoe UI', sans-serif; }
+    #MainMenu, footer { visibility: hidden; }
+    [data-testid="stHeader"] { background: transparent; }
 
-        .kpi-card {
-            background: linear-gradient(135deg, #ffffff, #f2f6ff);
-            border: 1px solid #dce6f5;
-            border-radius: 18px;
-            padding: 20px;
-            box-shadow: 0 8px 20px rgba(31, 60, 136, 0.08);
-            text-align: center;
-            margin-bottom: 10px;
-        }
+    [data-testid="stAppViewContainer"] {
+        background:
+            radial-gradient(1100px 600px at 8% -10%, rgba(79,140,255,.18), transparent 60%),
+            radial-gradient(900px 520px at 105% 2%, rgba(168,85,247,.15), transparent 55%),
+            linear-gradient(180deg, #070B16 0%, #0B1020 45%, #080C1A 100%);
+    }
+    .block-container { padding-top: 1.2rem; padding-bottom: 3rem; max-width: 1560px; }
 
-        .kpi-card h4 {
-            margin: 0;
-            color: #5f6f89;
-            font-size: 15px;
-            font-weight: 600;
-        }
+    /* ---------- HERO ---------- */
+    .hero {
+        display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+        background: linear-gradient(135deg, rgba(79,140,255,.16), rgba(168,85,247,.10));
+        border:1px solid rgba(255,255,255,.09); border-radius:22px;
+        padding:22px 26px; margin-bottom:22px;
+        box-shadow:0 18px 50px rgba(0,0,0,.45); backdrop-filter: blur(14px);
+    }
+    .hero-badge {
+        width:56px; height:56px; border-radius:16px; font-size:28px;
+        display:flex; align-items:center; justify-content:center;
+        background: linear-gradient(135deg,#4F8CFF,#8B5CF6);
+        box-shadow:0 10px 26px rgba(79,140,255,.45);
+    }
+    .hero h1 { margin:0; font-size:30px; font-weight:800; letter-spacing:-.5px; color:#F4F7FF; }
+    .hero p  { margin:4px 0 0 0; font-size:14px; color:#93A3C4; }
+    .hero-chip {
+        margin-left:auto; font-size:11.5px; font-weight:700; color:#A8C2FF;
+        padding:9px 16px; border-radius:999px; letter-spacing:.5px;
+        background:rgba(79,140,255,.14); border:1px solid rgba(79,140,255,.32);
+    }
 
-        .kpi-card h2 {
-            margin: 8px 0 0 0;
-            color: #102a43;
-            font-size: 34px;
-            font-weight: 800;
-        }
+    /* ---------- SECTION LABELS ---------- */
+    .sec-label {
+        display:flex; align-items:center; gap:9px;
+        font-size:11.5px; font-weight:700; letter-spacing:1.35px;
+        text-transform:uppercase; color:#7F92B8; margin:22px 0 10px 0;
+    }
+    .sec-label::after { content:""; flex:1; height:1px; background:rgba(255,255,255,.10); }
+    .sec-num {
+        display:inline-flex; align-items:center; justify-content:center;
+        width:17px; height:17px; border-radius:50%; font-size:10px;
+        border:1px solid #7F92B8; color:#7F92B8;
+    }
 
-        .side-panel {
-            background: #ffffff;
-            border: 1px solid #e3eaf5;
-            border-radius: 18px;
-            padding: 18px;
-            box-shadow: 0 8px 18px rgba(31, 60, 136, 0.08);
-        }
+    /* ---------- KPI CARDS ---------- */
+    .kpi-card {
+        position:relative; overflow:hidden;
+        background: linear-gradient(160deg, rgba(255,255,255,.06), rgba(255,255,255,.015));
+        border:1px solid rgba(255,255,255,.10); border-radius:20px;
+        padding:16px 20px 16px 20px; box-shadow:0 14px 34px rgba(0,0,0,.38);
+        transition: transform .18s ease, border-color .18s ease;
+    }
+    .kpi-card:hover { transform:translateY(-3px); border-color:rgba(255,255,255,.20); }
+    .kpi-card::before { content:""; position:absolute; top:0; left:0; height:4px; width:100%; }
+    .kpi-blue::before  { background:linear-gradient(90deg,#4F8CFF,#7DD3FC); }
+    .kpi-green::before { background:linear-gradient(90deg,#22C55E,#86EFAC); }
+    .kpi-amber::before { background:linear-gradient(90deg,#F59E0B,#FCD34D); }
+    .kpi-top { display:flex; align-items:center; gap:9px; margin-top:6px; }
+    .kpi-icon{ font-size:16px; }
+    .kpi-label{ font-size:11.5px; font-weight:700; letter-spacing:.7px; color:#93A3C4; text-transform:uppercase; }
+    .kpi-value{ font-size:42px; font-weight:800; color:#F4F7FF; line-height:1.05; margin:8px 0 14px 0; }
+    .kpi-bar { height:7px; width:100%; border-radius:99px; background:rgba(255,255,255,.10); overflow:hidden; }
+    .kpi-bar span { display:block; height:100%; border-radius:99px; }
+    .kpi-blue  .kpi-bar span { background:linear-gradient(90deg,#4F8CFF,#7DD3FC); }
+    .kpi-green .kpi-bar span { background:linear-gradient(90deg,#22C55E,#86EFAC); }
+    .kpi-amber .kpi-bar span { background:linear-gradient(90deg,#F59E0B,#FCD34D); }
+    .kpi-sub { font-size:11px; color:#6F819F; margin-top:9px; }
 
-        .plane-animation {
-            font-size: 54px;
-            animation: fly 1.8s linear infinite;
-            white-space: nowrap;
-            overflow: hidden;
-        }
+    /* ---------- PAGE CARD (preview grid) ---------- */
+    .pg-head {
+        display:flex; align-items:center; gap:9px;
+        margin:-1rem -1rem .75rem -1rem; padding:9px 12px;
+        border-radius:11px 11px 0 0;
+    }
+    .pg-pill {
+        font-size:10.5px; font-weight:800; color:#F4F7FF;
+        background:rgba(255,255,255,.16); padding:3px 9px; border-radius:8px;
+    }
+    .pg-code { font-size:11px; font-weight:700; letter-spacing:.3px; }
 
-        @keyframes fly {
-            0% {
-                transform: translateX(-15%);
-            }
-            100% {
-                transform: translateX(105%);
-            }
-        }
+    .chip-row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .chip {
+        display:inline-flex; align-items:center; gap:7px;
+        font-size:11px; font-weight:700; padding:6px 13px; border-radius:999px;
+    }
+    .chip i { width:7px; height:7px; border-radius:50%; display:inline-block; }
+    .count-chip {
+        font-size:11.5px; color:#93A3C4; padding:7px 15px; border-radius:999px;
+        background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.14);
+    }
+    .count-chip b { color:#F4F7FF; font-size:12.5px; }
 
-        .enr-subsection-title {
-            font-size: 13px;
-            color: #8ea2c8;
-            margin-top: -4px;
-            margin-bottom: 4px;
-            margin-left: 38px;
-            font-weight: 600;
-        }
+    /* ---------- INPUTS ---------- */
+    [data-baseweb="select"] > div, [data-testid="stDateInput"] input, [data-testid="stTextInput"] input {
+        background:rgba(255,255,255,.06) !important;
+        border:1px solid rgba(255,255,255,.13) !important;
+        border-radius:12px !important; color:#E6EBF5 !important;
+    }
+    [data-baseweb="select"] > div:hover { border-color:rgba(79,140,255,.55) !important; }
+    [data-testid="stFileUploaderDropzone"] {
+        background:rgba(79,140,255,.08);
+        border:1.5px dashed rgba(79,140,255,.42);
+        border-radius:16px; padding:18px; transition:all .2s ease;
+    }
+    [data-testid="stFileUploaderDropzone"\]:hover {
+        background:rgba(79,140,255,.13); border-color:rgba(79,140,255,.72);
+    }
+    label, [data-testid="stWidgetLabel"] p {
+        font-size:12.5px !important; font-weight:600 !important;
+        color:#9AACCB !important; letter-spacing:.3px;
+    }
+
+    /* ---------- BUTTONS ---------- */
+    .stButton > button, .stDownloadButton > button {
+        border-radius:12px; font-weight:600; font-size:14px; padding:9px 20px;
+        border:1px solid rgba(255,255,255,.13);
+        background:rgba(255,255,255,.06); color:#E6EBF5; transition:all .18s ease;
+    }
+    .stButton > button:hover, .stDownloadButton > button:hover {
+        transform:translateY(-2px); border-color:rgba(79,140,255,.6);
+        background:rgba(79,140,255,.14); color:#fff;
+    }
+    .stButton > button[kind="primary"] {
+        background:linear-gradient(135deg,#4F8CFF,#7C5CFF); border:none; color:#fff;
+        box-shadow:0 10px 26px rgba(79,140,255,.40);
+    }
+    .stDownloadButton > button {
+        background:linear-gradient(135deg,#16A34A,#22C55E); border:none; color:#fff;
+        box-shadow:0 8px 22px rgba(34,197,94,.32);
+    }
+
+    /* ---------- MISC ---------- */
+    [data-testid="stCheckbox"] label, [data-testid="stToggle"] label {
+        font-size:13.5px !important; color:#D6E0F5 !important;
+    }
+    [data-testid="stExpander"] {
+        border:1px solid rgba(255,255,255,.10) !important;
+        border-radius:14px !important; background:rgba(255,255,255,.035) !important;
+    }
+    [data-testid="stAlert"] { border-radius:14px; border:1px solid rgba(255,255,255,.10); }
+    [data-testid="stImage"] img {
+        border-radius:7px; border:1px solid rgba(0,0,0,.35);
+        box-shadow:0 6px 18px rgba(0,0,0,.35);
+    }
+    ::-webkit-scrollbar { width:10px; height:10px; }
+    ::-webkit-scrollbar-track { background:transparent; }
+    ::-webkit-scrollbar-thumb { background:rgba(255,255,255,.14); border-radius:99px; }
+    ::-webkit-scrollbar-thumb:hover { background:rgba(79,140,255,.5); }
+
+    .enr-subsection-title {
+        font-size:10.5px; color:#6F819F; font-weight:700; letter-spacing:1.15px;
+        text-transform:uppercase; margin:6px 0 2px 34px;
+    }
+        .src-note {
+        font-size:13px; color:#A9B8D4; line-height:1.65;
+        padding:2px 0 10px 0;
+    }
+    .src-note b { color:#DCE6FA; }
+    .icao-chip {
+        font-size:11px; font-weight:700; letter-spacing:.3px;
+        padding:5px 11px; border-radius:999px; font-family:ui-monospace,monospace;
+    }
+    .amdt-tag {
+        display:inline-block; font-size:11.5px; font-weight:700;
+        color:#A8C2FF; background:rgba(79,140,255,.14);
+        border:1px solid rgba(79,140,255,.32);
+        padding:6px 14px; border-radius:999px; margin-bottom:4px;
+    }
     </style>
     """,
     unsafe_allow_html=True
 )
-
 
 # =============================
 # MASTER CSV
@@ -149,6 +256,7 @@ COUNTRY_OPTIONS = ["Universal"] + sorted(
         "Australia (ERSA)",
         "Russia",
         "Argentina",
+        "Paraguay",
     ],
     key=str.lower
 )
@@ -222,6 +330,11 @@ def compact_spaces(text):
     # whitespace, so it survived and broke every AD/GEN/ENR hyphen regex.
     # Normalize all unicode dash/hyphen variants to a plain ASCII hyphen.
     text = re.sub(r"[\u00AD\u2010\u2011\u2012\u2013\u2014\u2015\u2212]", "-", text)
+    # COCESNA eAIP embeds layout markers in the page text, so the running
+    # # footer reads "AD-2.MSLP~~~END~~~-10" instead of "AD-2.MSLP-10".
+    # Strip ~~~LEFT~~~ / ~~~RIGHT~~~ / ~~~END~~~ / ~~~eaip-amdt~~~ so the
+    # page-id parses normally. Harmless for every other country.
+    text = re.sub(r"~~~[A-Z0-9\-]{0,20}?~~~", " ", text)
     return re.sub(r"\s+", " ", text).strip()
 
 
@@ -811,26 +924,28 @@ def match_ad_cocesna(line_text):
     """
     COCESNA group profile.
 
-    COCESNA can contain combined Central American states in one publication.
-    It uses full master airport list comparison.
+    Identity is the running page-id: "AD-2.MSLP-10", "AD-2.MGGT.14",
+    "AD-2.MSSS ARC", or the header form "MSLP AD 2.16". The bare
+    "AD-2.<ICAO>" form (nothing parsable after the ICAO) was missing from
+    the old pattern list, which is why every AD-2 page resolved to None.
 
-    Supported likely group styles:
-        MHTG AD 2 - 1
-        MHTG AD 2.24-1
-        AD 2 MHTG - 1
-        AD 2-MHTG-1
-        AD-2.MHTG-1
-        01 AD-2.MHTG-1
-        01AD2-MHTG-IAC-RNP02
+    Central American ICAOs are all M-prefixed (MZ Belize, MR Costa Rica,
+    MS El Salvador, MG Guatemala, MH Honduras, MN Nicaragua).
     """
     t = compact_spaces(line_text)
 
     patterns = [
-        r"\b([A-Z]{4})\s+AD\s*2(?:\s*\.\s*\d+)*(?:\s*-\s*[A-Z0-9]+)?\b(?!\s*[\/~])",
-        r"\bAD\s*2\s+([A-Z]{4})\s*-\s*\d+\b(?!\s*[\/~])",
-        r"\bAD\s*[- ]?\s*2\s*[\.\-]\s*([A-Z]{4})(?:\s*[\.\-]\s*[A-Z0-9]+)+\b",
-        r"\b\d{2}\s*[- ]?\s*AD\s*-\s*2\s*[\.\-]\s*([A-Z]{4})(?:\s*[\.\-]\s*[A-Z0-9]+)+\b",
-        r"\b\d{2}\s*AD\s*2\s*-\s*([A-Z]{4})(?:\s*-\s*[A-Z0-9]+)+\b"
+        # AD-2.MSLP-10 / AD-2.MGGT.14 / AD-2.MSSS ARC / bare AD-2.MSLP
+        r"\bAD\s*[- ]?\s*2\s*[\.\-]\s*(M[A-Z]{3})\b",
+
+        # 01 AD-2.MHTG-1 / 01AD2-MHTG-IAC-RNP02
+        r"\b\d{2}\s*[- ]?\s*AD\s*[- ]?\s*2\s*[\.\-]\s*(M[A-Z]{3})\b",
+
+        # AD 2 MHTG - 1
+        r"\bAD\s*2\s+(M[A-Z]{3})\s*-\s*\d+\b(?!\s*[\/~])",
+
+        # MSLP AD 2.16 / MGGT AD 2.24   (ICAO-first header form)
+        r"\b(M[A-Z]{3})\s+AD\s*2(?:\s*\.\s*\d+)*\b(?!\s*[\/~])",
     ]
 
     for pattern in patterns:
@@ -1065,7 +1180,7 @@ def is_auto_removed_section(section_detail):
     regardless of selected effective date:
 
         GEN 1, GEN 2, GEN 3, GEN 4, GEN 5
-        ENR 2, ENR 5, ENR 6
+        ENR 0, ENR 2, ENR 5, ENR 6
     """
     section = section_detail.get("section")
     major = section_detail.get("major")
@@ -1073,7 +1188,7 @@ def is_auto_removed_section(section_detail):
     if section == "GEN" and major in {1, 2, 3, 4, 5}:
         return True
 
-    if section == "ENR" and major in {2, 5, 6}:
+    if section == "ENR" and major in {0, 2, 5, 6}:
         return True
 
     return False
@@ -1601,7 +1716,147 @@ def process_pdf_chile(input_pdf_path, selected_date):
     return (total_pdf_pages, final_pages, detected_ad_owners, kept_ad_owners,
             removed_ad_owners, auto_removed_pages, removed_page_details,
             ad_detection_details)
-    
+
+# =============================================================
+# PARAGUAY (DINAC) — isolated. NOT part of Universal.
+# Header page-id is "AD 2.1-3" (no ICAO). The ICAO lives in the
+# BODY as "SGAS ..." or only the aerodrome NAME is printed
+# ("LUQUE / SILVIO PETTIROSSI INTL."). AD 2.N = one AIRPORT, so
+# N -> ICAO is learned in pass 1 and reused for every 2.N page.
+# Image-only chart pages inherit the previous page's identity.
+# =============================================================
+PY_ICAO_RE = re.compile(r"\b(SG[A-Z]{2})\b")
+PY_ID_RE   = re.compile(r"\b(GEN|ENR|AD)\s*(\d+)\s*\.\s*(\d+)\s*-\s*[\d.]+", re.I)
+PY_NAME_RE = re.compile(r"\b([A-ZÑÜ]{4,})\s*/\s*[“\"']?[A-ZÑÜ]")
+
+
+def _py_identity(page, text):
+    head_lines = [compact_spaces(l) for l in str(text).splitlines()[:6]]
+    for line in get_zone_lines(page) + head_lines:
+        m = PY_ID_RE.search(line)
+        if m:
+            return m.group(1).upper(), int(m.group(2)), int(m.group(3)), m.group(0)
+    return None, None, None, None
+
+
+def _py_icao(text):
+    m = PY_ICAO_RE.search(str(text).upper())
+    return m.group(1) if m else None
+
+
+def _py_names(text):
+    return {m.group(1).upper() for m in PY_NAME_RE.finditer(normalize_for_admin(text))}
+
+
+def process_pdf_paraguay(input_pdf_path, selected_date):
+    """Paraguay-only pipeline. Returns the SAME 8-tuple as process_pdf()."""
+    doc = fitz.open(input_pdf_path)
+    total_pdf_pages = len(doc)
+    allowed_icaos = load_master()
+
+    # ---- PASS 1: identity + learn AD2.N -> ICAO and NAME -> ICAO ----
+    scanned, group_map, name_map = [], {}, {}
+    last = {"s": None, "mj": None, "sub": None, "d": False}
+
+    for page_index in range(len(doc)):
+        page = doc[page_index]
+        text = page.get_text()
+        date_text = text + "\n" + "\n".join(get_zone_lines(page))
+
+        s, mj, sub, raw = _py_identity(page, text)
+        icao = _py_icao(text)
+        names = _py_names(text)
+        d_ok = match_date_for_country(date_text, selected_date, "Paraguay")
+
+        inherited = False
+        if s is None and len(text.strip()) < 30:      # image-only chart page
+            s, mj, sub, d_ok = last["s"], last["mj"], last["sub"], last["d"]
+            raw, inherited = "(chart - inherited)", True
+
+        if s == "AD" and mj == 2 and sub is not None and icao:
+            group_map.setdefault(sub, icao)
+            for nm in names:
+                name_map.setdefault(nm, icao)
+
+        if s:
+            last.update({"s": s, "mj": mj, "sub": sub, "d": d_ok})
+
+        scanned.append(dict(idx=page_index, s=s, mj=mj, sub=sub, raw=raw,
+                            icao=icao, names=names, d=d_ok, inh=inherited))
+
+    # ---- PASS 2: resolve + filter ----
+    temp_pages, auto_removed_pages, removed_page_details = [], [], []
+    detected_ad_owners, kept_ad_owners, removed_ad_owners = set(), set(), set()
+    ad_detection_details = []
+
+    for r in scanned:
+        s, mj, sub, page_index = r["s"], r["mj"], r["sub"], r["idx"]
+
+        detail = {"section": s, "major": mj, "raw": r["raw"], "icao": None,
+                  "is_airport_ad": False,
+                  "parser": "Paraguay-chart" if r["inh"] else "Paraguay"}
+
+        if s == "AD" and mj == 2:
+            # 1) ICAO on the page  2) AD 2.N group  3) learned aerodrome name
+            icao = r["icao"] or group_map.get(sub)
+            if not icao:
+                for nm in r["names"]:
+                    if nm in name_map:
+                        icao = name_map[nm]
+                        break
+            if icao:
+                detail.update({"icao": icao, "is_airport_ad": True})
+                detected_ad_owners.add(icao)
+                ad_detection_details.append(
+                    {"page": page_index + 1, "icao": icao,
+                     "raw": f"AD 2.{sub} ({r['raw']})", "parser": detail["parser"]})
+
+        if not s:
+            removed_page_details.append(
+                {"page": page_index + 1, "category": get_clean_removed_category(detail)})
+            continue
+
+        if is_auto_removed_section(detail):
+            auto_removed_pages.append({"page": page_index + 1, "section": s,
+                                       "major": mj, "raw": r["raw"]})
+            removed_page_details.append(
+                {"page": page_index + 1, "category": get_clean_removed_category(detail)})
+            continue
+
+        if not r["d"]:
+            removed_page_details.append(
+                {"page": page_index + 1, "category": get_clean_removed_category(detail)})
+            continue
+
+        temp_pages.append((page_index, s, detail))
+
+    final_pages = []
+    for page_index, section, detail in temp_pages:
+        major = detail.get("major")
+
+        if section == "AD" and major == 2:
+            icao = detail.get("icao")
+            # Fail OPEN: an AD 2 page whose airport can't be resolved is KEPT,
+            # never silently deleted.
+            if icao:
+                if icao in allowed_icaos:
+                    kept_ad_owners.add(icao)
+                else:
+                    removed_ad_owners.add(icao)
+                    removed_page_details.append(
+                        {"page": page_index + 1,
+                         "category": get_clean_removed_category(detail)})
+                    continue
+
+        final_pages.append((page_index, section, major))
+
+    doc.close()
+    st.session_state["py_group_map"] = dict(sorted(group_map.items()))
+
+    return (total_pdf_pages, final_pages, detected_ad_owners, kept_ad_owners,
+            removed_ad_owners, auto_removed_pages, removed_page_details,
+            ad_detection_details)
+            
 # =============================================================
 # AUSTRALIA (ERSA) — fully isolated. NOT part of Universal.
 # ERSA publishes one FAC_<ICAO>_<DATE>.pdf per aerodrome.
@@ -2238,7 +2493,63 @@ for key, value in default_state.items():
 # =============================
 # UI
 # =============================
-st.title("✈️ AIP Trimmer")
+st.markdown(
+    """
+    <div class="hero">
+        <div class="hero-badge">✈️</div>
+        <div>
+            <h1>AIP Trimmer</h1>
+            <p>Parse, filter and trim national AIP amendments down to only the pages that matter.</p>
+        </div>
+        <div class="hero-chip">CAE · AVIATION DATA AUTOMATION</div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+def sec_label(num, text):
+    st.markdown(
+        f'<div class="sec-label"><span class="sec-num">{num}</span>{text}</div>',
+        unsafe_allow_html=True
+    )
+
+sec_label(1, "Parser profile")
+
+def kpi_card(title, value, icon="📄", tone="blue", sub="", pct=100):
+    st.markdown(
+        f"""
+        <div class="kpi-card kpi-{tone}">
+            <div class="kpi-top">
+                <span class="kpi-icon">{icon}</span>
+                <span class="kpi-label">{title}</span>
+            </div>
+            <div class="kpi-value">{value}</div>
+            <div class="kpi-bar"><span style="width:{max(0, min(100, pct))}%"></span></div>
+            <div class="kpi-sub">{sub}</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+def icao_chips(codes, color="#34D399", empty="None", limit=60):
+    codes = list(codes or [])
+    if not codes:
+        st.markdown(f'<div class="src-note">{empty}</div>', unsafe_allow_html=True)
+        return
+    shown = codes[:limit]
+    chips = "".join(
+        f'<span class="icao-chip" style="background:{color}22;'
+        f'border:1px solid {color}55;color:{color};">{c}</span>'
+        for c in shown
+    )
+    extra = (
+        f'<span class="icao-chip" style="background:rgba(255,255,255,.07);'
+        f'border:1px solid rgba(255,255,255,.16);color:#93A3C4;">'
+        f'+{len(codes) - len(shown)} more</span>'
+        if len(codes) > len(shown) else ""
+    )
+    st.markdown(f'<div class="chip-row">{chips}{extra}</div>', unsafe_allow_html=True)
 
 country = st.selectbox(
     "Select Country / Parser Profile",
@@ -2247,164 +2558,269 @@ country = st.selectbox(
 )
 
 if country == "Russia":
-    st.info("Russia: auto-reads caica.ru and merges 2-AD2 (in master) + "
-            "ENR 3.1/3.2/1.11 into one PDF.")
+    sec_label(2, "Russia · automated source")
 
-    if st.button("🚀 Fetch & Merge Russia"):
-        cleanup_existing_pdf_files()
-        out_path = make_temp_pdf_path("russia_merged")
-        with st.spinner("Reading AMDT list, downloading & merging…"):
-            mp, kept, skipped, enr_kept, failed, debug = process_russia_auto(out_path)
+    with st.container(border=True):
+        st.markdown(
+            '<div class="src-note">Reads <b>caica.ru</b> directly — no upload needed. '
+            'Keeps <b>AD 2</b> volumes 1–3 whose ICAO is in the master list, plus '
+            '<b>ENR 1.11 / 3.1 / 3.2</b> and their subsections, then merges everything '
+            'into a single PDF.</div>',
+            unsafe_allow_html=True
+        )
 
-        if not (kept or enr_kept):
-            mp = None
+        if st.button("🚀 Fetch & merge Russia", type="primary", use_container_width=True):
+            cleanup_existing_pdf_files()
+            out_path = make_temp_pdf_path("russia_merged")
 
-        st.session_state.update({
-            "input_pdf_path": mp, "output_pdf_path": mp,
-            "processed_country": "Russia", "processed": True,
-            "ru_kept": kept or [], "ru_skipped": skipped or [],
-            "ru_enr": enr_kept or [], "ru_failed": failed or [],
-        })
+            with st.spinner("Reading AMDT list, downloading & merging…"):
+                mp, kept, skipped, enr_kept, failed, debug = process_russia_auto(out_path)
+
+            if not (kept or enr_kept):
+                mp = None
+
+            st.session_state.update({
+                "input_pdf_path": mp, "output_pdf_path": mp,
+                "processed_country": "Russia", "processed": True,
+                "ru_kept": kept or [], "ru_skipped": skipped or [],
+                "ru_enr": enr_kept or [], "ru_failed": failed or [],
+            })
 
     if st.session_state.get("processed_country") == "Russia":
         kept     = st.session_state.get("ru_kept", []) or []
         enr_kept = st.session_state.get("ru_enr", []) or []
         skipped  = st.session_state.get("ru_skipped", []) or []
+        failed   = st.session_state.get("ru_failed", []) or []
         mp       = st.session_state.get("output_pdf_path")
 
         if kept or enr_kept:
-            st.success(f"Merged {len(kept)} 2-AD2 airport(s) + {len(enr_kept)} ENR file(s).")
-            st.write("**AD2 kept:** " + (", ".join(kept) if kept else "—"))
-            st.write("**ENR kept:** " + (", ".join(enr_kept) if enr_kept else "—"))
-            if mp and os.path.exists(mp):
-                with open(mp, "rb") as f:
-                    st.download_button("⬇ Download merged Russia PDF", f,
-                                       file_name="Russia_merged.pdf",
-                                       mime="application/pdf")
+            detected = len(kept) + len(skipped)
+            kept_pct = round(len(kept) / detected * 100) if detected else 0
+
+            sec_label(3, "Results overview")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                kpi_card("AD 2 airports", len(kept), "🛫", "green",
+                         f"{kept_pct}% of {detected} detected ICAOs", kept_pct)
+            with c2:
+                kpi_card("ENR files", len(enr_kept), "🗺️", "blue",
+                         "ENR 1.11 / 3.1 / 3.2 and subsections", 100)
+            with c3:
+                kpi_card("Skipped", len(skipped), "🚫", "amber",
+                         "ICAOs not in the master list", 100 - kept_pct)
+
+            sec_label(4, "Merged output")
+            with st.container(border=True):
+                st.markdown("**AD 2 airports kept**")
+                icao_chips(kept, "#34D399")
+                st.markdown("**ENR files kept**")
+                icao_chips(enr_kept, "#A78BFA")
+
+                if mp and os.path.exists(mp):
+                    st.caption(f"Merged file: {get_file_size_mb(mp):.2f} MB")
+                    with open(mp, "rb") as f:
+                        st.download_button("⬇ Download merged Russia PDF", f,
+                                           file_name="Russia_merged.pdf",
+                                           mime="application/pdf",
+                                           use_container_width=True)
         else:
-            st.warning("Nothing matched — none of the detected 2-AD2 ICAOs are in the master list.")
+            st.warning("Nothing matched — none of the detected AD 2 ICAOs are in the master list.")
 
         if skipped:
-            with st.expander(f"Skipped (not in master): {len(skipped)}"):
-                st.write(", ".join(skipped))
+            with st.expander(f"🚫 Skipped — not in master list ({len(skipped)})"):
+                icao_chips(skipped, "#F59E0B", limit=400)
+
+        if failed:
+            with st.expander(f"⚠️ Failed downloads ({len(failed)})"):
+                for tag, reason in failed[:40]:
+                    st.write(f"`{tag}` — {reason}")
 
     st.stop()
 
 if country == "Argentina":
-    st.info("Argentina (ANAC): auto-reads ais.anac.gob.ar/amdt (latest AMDT) and merges "
-            "GEN 0.1, ENR 1.11, ENR 3.1, ENR 3.2 + AD 2 (in master) into one PDF. "
-            "No translation needed — section codes are language-independent.")
+    sec_label(2, "Argentina (ANAC) · automated source")
 
-    if st.button("🚀 Fetch & Merge Argentina"):
-        cleanup_existing_pdf_files()
-        out_path = make_temp_pdf_path("argentina_merged")
-        with st.spinner("Reading AMDT list, downloading & merging…"):
-            mp, kept_ad, kept_sec, skipped, failed, debug = process_argentina_auto(out_path)
+    with st.container(border=True):
+        st.markdown(
+            '<div class="src-note">Reads <b>ais.anac.gob.ar/amdt</b> and picks the latest '
+            'amendment automatically. Keeps <b>GEN 0.1</b>, <b>ENR 1.11</b>, <b>ENR 3.1</b>, '
+            '<b>ENR 3.2</b> and <b>AD 2</b> airports in the master list. Section codes are '
+            'language-independent, so no translation is needed.</div>',
+            unsafe_allow_html=True
+        )
 
-        if not (kept_ad or kept_sec):
-            mp = None
+        if st.button("🚀 Fetch & merge Argentina", type="primary", use_container_width=True):
+            cleanup_existing_pdf_files()
+            out_path = make_temp_pdf_path("argentina_merged")
 
-        st.session_state.update({
-            "input_pdf_path": mp, "output_pdf_path": mp,
-            "processed_country": "Argentina", "processed": True,
-            "ar_kept_ad": kept_ad or [], "ar_kept_sec": kept_sec or [],
-            "ar_skipped": skipped or [], "ar_amdt": debug.get("amdt_label", ""),
-            "ar_links": debug.get("links_found", 0),
-            "ar_missing": debug.get("sections_missing", []),
-        })
+            with st.spinner("Reading AMDT list, downloading & merging…"):
+                mp, kept_ad, kept_sec, skipped, failed, debug = process_argentina_auto(out_path)
+
+            if not (kept_ad or kept_sec):
+                mp = None
+
+            st.session_state.update({
+                "input_pdf_path": mp, "output_pdf_path": mp,
+                "processed_country": "Argentina", "processed": True,
+                "ar_kept_ad": kept_ad or [], "ar_kept_sec": kept_sec or [],
+                "ar_skipped": skipped or [], "ar_amdt": debug.get("amdt_label", ""),
+                "ar_links": debug.get("links_found", 0),
+                "ar_missing": debug.get("sections_missing", []),
+                "ar_failed": failed or [],
+            })
 
     if st.session_state.get("processed_country") == "Argentina":
         kept_ad  = st.session_state.get("ar_kept_ad", []) or []
         kept_sec = st.session_state.get("ar_kept_sec", []) or []
         skipped  = st.session_state.get("ar_skipped", []) or []
         missing  = st.session_state.get("ar_missing", []) or []
+        failed   = st.session_state.get("ar_failed", []) or []
         mp       = st.session_state.get("output_pdf_path")
         amdt     = st.session_state.get("ar_amdt", "")
 
         if kept_ad or kept_sec:
-            st.success(f"{amdt} — merged {len(kept_ad)} AD2 airport(s) + "
-                       f"{len(kept_sec)} section file(s).")
-            st.write("**AD2 kept:** " + (", ".join(kept_ad) if kept_ad else "—"))
-            st.write("**Sections kept:** " + (", ".join(kept_sec) if kept_sec else "—"))
-            if missing:
-                st.caption("Requested sections not in this AMDT: " + ", ".join(missing))
-            if mp and os.path.exists(mp):
-                with open(mp, "rb") as f:
-                    st.download_button("⬇ Download FULL merged Argentina PDF", f,
-                                       file_name="Argentina_merged.pdf",
-                                       mime="application/pdf")
+            detected = len(kept_ad) + len(skipped)
+            kept_pct = round(len(kept_ad) / detected * 100) if detected else 0
+
+            sec_label(3, "Results overview")
+            if amdt:
+                st.markdown(f'<span class="amdt-tag">{amdt}</span>', unsafe_allow_html=True)
+
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                kpi_card("AD 2 airports", len(kept_ad), "🛫", "green",
+                         f"{kept_pct}% of {detected} detected ICAOs", kept_pct)
+            with c2:
+                kpi_card("Sections", len(kept_sec), "📑", "blue",
+                         "GEN 0.1 · ENR 1.11 / 3.1 / 3.2", 100)
+            with c3:
+                kpi_card("Skipped", len(skipped), "🚫", "amber",
+                         "ICAOs not in the master list", 100 - kept_pct)
+
+            sec_label(4, "Merged output")
+            with st.container(border=True):
+                st.markdown("**AD 2 airports kept**")
+                icao_chips(kept_ad, "#34D399")
+                st.markdown("**Sections kept**")
+                icao_chips(kept_sec, "#60A5FA")
+
+                if missing:
+                    st.caption("Requested sections not present in this AMDT: " + ", ".join(missing))
+
+                if mp and os.path.exists(mp):
+                    st.caption(f"Merged file: {get_file_size_mb(mp):.2f} MB")
+                    with open(mp, "rb") as f:
+                        st.download_button("⬇ Download full merged Argentina PDF", f,
+                                           file_name="Argentina_merged.pdf",
+                                           mime="application/pdf",
+                                           use_container_width=True)
 
             # ---- Stage 2: filter the merged PDF by effective date ----
-            st.markdown("---")
-            st.subheader("✂️ Keep only pages for an effective date")
-            st.caption("Argentina mixes effective dates. Dates are printed at the "
-                       "bottom of each page in Spanish (e.g. 11 JUNIO 2026).")
+            sec_label(5, "Trim to a single effective date")
 
-            ar_date = st.date_input("Effective Date", key="ar_filter_date")
+            with st.container(border=True):
+                st.markdown(
+                    '<div class="src-note">This AMDT mixes several effective dates. '
+                    'Argentina prints the date at the <b>bottom of each page in Spanish</b> '
+                    '(e.g. <b>11 JUNIO 2026</b>) — all months ENERO…DICIEMBRE are supported.</div>',
+                    unsafe_allow_html=True
+                )
 
-            if st.button("Filter merged PDF by date"):
-                if mp and os.path.exists(mp):
-                    out_path = make_temp_pdf_path("argentina_filtered")
-                    ok, kept_pages = filter_merged_pdf_by_date(
-                        mp, ar_date.strftime("%d %b %Y"),
-                        out_path, match_date_argentina
-                    )
-                    st.session_state["ar_filtered_path"] = out_path if ok else None
-                    st.session_state["ar_filtered_pages"] = kept_pages
-                    st.session_state["ar_filtered_date"] = ar_date.strftime("%d %b %Y")
-                else:
-                    st.warning("Merged PDF not found. Fetch & merge again first.")
+                fc1, fc2 = st.columns([1, 1])
+                with fc1:
+                    ar_date = st.date_input("Effective date", key="ar_filter_date")
+                with fc2:
+                    st.markdown("<div style='height:27px'></div>", unsafe_allow_html=True)
+                    filter_clicked = st.button("✂️ Filter merged PDF by date",
+                                               use_container_width=True)
 
-            fpath  = st.session_state.get("ar_filtered_path")
-            fpages = st.session_state.get("ar_filtered_pages", [])
-            fdate  = st.session_state.get("ar_filtered_date", "")
+                if filter_clicked:
+                    if mp and os.path.exists(mp):
+                        out_path = make_temp_pdf_path("argentina_filtered")
+                        ok, kept_pages = filter_merged_pdf_by_date(
+                            mp, ar_date.strftime("%d %b %Y"),
+                            out_path, match_date_argentina
+                        )
+                        st.session_state["ar_filtered_path"] = out_path if ok else None
+                        st.session_state["ar_filtered_pages"] = kept_pages
+                        st.session_state["ar_filtered_date"] = ar_date.strftime("%d %b %Y")
+                    else:
+                        st.warning("Merged PDF not found. Fetch & merge again first.")
 
-            if fpath and os.path.exists(fpath):
-                st.success(f"{len(fpages)} page(s) match {fdate}.")
-                with open(fpath, "rb") as f:
-                    st.download_button("⬇ Download date-filtered PDF", f,
-                                       file_name=f"Argentina_{fdate.replace(' ', '')}.pdf",
-                                       mime="application/pdf")
-            elif st.session_state.get("ar_filtered_date"):
-                st.warning(f"No pages matched {fdate}. "
-                           "Check the date — Spanish months are supported "
-                           "(ENERO…DICIEMBRE).")
+                fpath  = st.session_state.get("ar_filtered_path")
+                fpages = st.session_state.get("ar_filtered_pages", [])
+                fdate  = st.session_state.get("ar_filtered_date", "")
+
+                if fpath and os.path.exists(fpath):
+                    st.success(f"{len(fpages)} page(s) match {fdate}.")
+                    with open(fpath, "rb") as f:
+                        st.download_button("⬇ Download date-filtered PDF", f,
+                                           file_name=f"Argentina_{fdate.replace(' ', '')}.pdf",
+                                           mime="application/pdf",
+                                           use_container_width=True)
+                elif st.session_state.get("ar_filtered_date"):
+                    st.warning(f"No pages matched {fdate}. Double-check the date — "
+                               "Spanish month names are supported (ENERO…DICIEMBRE).")
         else:
             st.warning(f"Nothing matched. (links found on page: "
                        f"{st.session_state.get('ar_links', 0)})")
 
         if skipped:
-            with st.expander(f"Skipped AD2 (not in master): {len(skipped)}"):
-                st.write(", ".join(skipped))
+            with st.expander(f"🚫 Skipped AD 2 — not in master list ({len(skipped)})"):
+                icao_chips(skipped, "#F59E0B", limit=400)
+
+        if failed:
+            with st.expander(f"⚠️ Failed downloads ({len(failed)})"):
+                for tag, reason in failed[:40]:
+                    st.write(f"`{tag}` — {reason}")
 
     st.stop()
 
 if country == "Australia (ERSA)":
-    st.info("Australia auto-builds a merged, master-filtered PDF from the ERSA site — no upload or merging needed.")
+    sec_label(2, "Australia (ERSA) · automated source")
 
-    cycles = get_ersa_cycles()
-
-    def _pretty(c):
-        try:
-            return datetime.strptime(c, "%d%b%Y").strftime("%d %b %Y").upper()
-        except Exception:
-            return c
-
-    if cycles:
-        labels = {c: (f"{_pretty(c)}  (current)" if i == 0 else f"{_pretty(c)}  (next)")
-                  for i, c in enumerate(cycles)}
-        cycle = st.selectbox(
-            "ERSA cycle (auto-detected)",
-            cycles,
-            format_func=lambda c: labels.get(c, _pretty(c)),
+    with st.container(border=True):
+        st.markdown(
+            '<div class="src-note">ERSA publishes one <b>FAC_&lt;ICAO&gt;_&lt;DATE&gt;.pdf</b> '
+            'per aerodrome, so the ICAO comes straight from the filename. The tool filters '
+            'against the master list, downloads the matches and merges them — no upload '
+            'needed. Cycles are detected automatically and roll over on their own.</div>',
+            unsafe_allow_html=True
         )
-    else:
-        st.warning("Couldn't auto-detect the cycle. Enter it manually (e.g. 09JUL2026).")
-        cycle = st.text_input("ERSA cycle", value="")
 
-    cycle = re.sub(r"\s+", "", str(cycle)).upper()
+        cycles = get_ersa_cycles()
 
-    if st.button("🚀 Fetch & Merge ERSA"):
+        def _pretty(c):
+            try:
+                return datetime.strptime(c, "%d%b%Y").strftime("%d %b %Y").upper()
+            except Exception:
+                return c
+
+        cy1, cy2 = st.columns([2, 1])
+
+        with cy1:
+            if cycles:
+                labels = {
+                    c: (f"{_pretty(c)}  ·  current" if i == 0 else f"{_pretty(c)}  ·  next")
+                    for i, c in enumerate(cycles)
+                }
+                cycle = st.selectbox(
+                    "ERSA cycle (auto-detected)",
+                    cycles,
+                    format_func=lambda c: labels.get(c, _pretty(c)),
+                )
+            else:
+                st.warning("Couldn't auto-detect the cycle — enter it manually, e.g. 09JUL2026.")
+                cycle = st.text_input("ERSA cycle", value="")
+
+        cycle = re.sub(r"\s+", "", str(cycle)).upper()
+
+        with cy2:
+            st.markdown("<div style='height:27px'></div>", unsafe_allow_html=True)
+            fetch_clicked = st.button("🚀 Fetch & merge ERSA",
+                                      type="primary", use_container_width=True)
+
+    if fetch_clicked:
         cleanup_existing_pdf_files()
         out_path = make_temp_pdf_path("ersa_merged")
 
@@ -2422,39 +2838,86 @@ if country == "Australia (ERSA)":
             "au_cycle": cycle,
         })
 
-    # Persist results across reruns
-    if st.session_state.get("processed_country") == "Australia" and st.session_state.get("output_pdf_path"):
-        kept = st.session_state.get("au_kept", [])
-        skipped = st.session_state.get("au_skipped", [])
-        failed = st.session_state.get("au_failed", [])
+    if (st.session_state.get("processed_country") == "Australia"
+            and st.session_state.get("output_pdf_path")):
+        kept        = st.session_state.get("au_kept", []) or []
+        skipped     = st.session_state.get("au_skipped", []) or []
+        failed      = st.session_state.get("au_failed", []) or []
         merged_path = st.session_state["output_pdf_path"]
 
         if kept:
-            st.success(f"Merged {len(kept)} aerodromes into one PDF.")
-            st.write(f"Kept (in master): {', '.join(kept[:30])}{' …' if len(kept)>30 else ''}")
-            st.write(f"Skipped (not in master): {len(skipped)}")
-        else:
-            st.error("No aerodromes were merged — likely the terms gate blocked the download. See below.")
-        if failed:
-            st.warning(f"Failed ({len(failed)}): {failed[:10]}")
+            detected = len(kept) + len(skipped)
+            kept_pct = round(len(kept) / detected * 100) if detected else 0
 
-        if os.path.exists(merged_path):
-            with open(merged_path, "rb") as f:
-                st.download_button("⬇ Download merged ERSA PDF", f,
-                                   file_name=f"ERSA_merged_{st.session_state.get('au_cycle','')}.pdf",
-                                   mime="application/pdf")
+            sec_label(3, "Results overview")
+            st.markdown(
+                f'<span class="amdt-tag">ERSA cycle '
+                f'{_pretty(st.session_state.get("au_cycle", ""))}</span>',
+                unsafe_allow_html=True
+            )
+
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                kpi_card("Aerodromes merged", len(kept), "🛫", "green",
+                         f"{kept_pct}% of {detected} published", kept_pct)
+            with c2:
+                kpi_card("Skipped", len(skipped), "🚫", "blue",
+                         "Not in the master list", 100 - kept_pct)
+            with c3:
+                kpi_card("Failed", len(failed), "⚠️", "amber",
+                         "Download or terms-gate errors",
+                         round(len(failed) / detected * 100) if detected else 0)
+
+            sec_label(4, "Merged output")
+            with st.container(border=True):
+                st.markdown("**Aerodromes kept**")
+                icao_chips(kept, "#34D399")
+
+                if os.path.exists(merged_path):
+                    st.caption(f"Merged file: {get_file_size_mb(merged_path):.2f} MB")
+                    with open(merged_path, "rb") as f:
+                        st.download_button(
+                            "⬇ Download merged ERSA PDF", f,
+                            file_name=f"ERSA_merged_{st.session_state.get('au_cycle','')}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+        else:
+            st.error("No aerodromes were merged — the terms gate most likely blocked the "
+                     "downloads. Check the failure details below.")
+
+        if skipped:
+            with st.expander(f"🚫 Skipped — not in master list ({len(skipped)})"):
+                icao_chips(skipped, "#F59E0B", limit=400)
+
+        if failed:
+            with st.expander(f"⚠️ Failed downloads ({len(failed)})"):
+                for tag, reason in failed[:40]:
+                    st.write(f"`{tag}` — {reason}")
 
     st.stop()
 
-file = st.file_uploader("Upload PDF", type=["pdf"])
-date = st.date_input("Effective Date")
+sec_label(2, "Source document & effective date")
+
+with st.container(border=True):
+    up_col, date_col = st.columns([2, 1])
+    with up_col:
+        file = st.file_uploader(
+            "Upload AIP amendment PDF",
+            type=["pdf"],
+            help="Drop the full AMDT PDF here — GEN / ENR / AD pages are detected automatically."
+        )
+    with date_col:
+        date = st.date_input("Effective date (AIRAC)")
+        if file is not None:
+            st.caption(f"📄 {file.name}")
 
 
 # =============================
 # RUN PARSER
 # =============================
 if file:
-    if st.button("🚀 Parse"):
+    if st.button("🚀 Parse document", type="primary", use_container_width=True):
         st.session_state.preview_limit = 10
         st.session_state.last_preview_signature = None
         st.session_state.selection_initialized = False
@@ -2483,6 +2946,14 @@ if file:
                     total_pdf_pages, pages, detected_ad_owners, kept, removed,
                     auto_removed_pages, removed_page_details, ad_detection_details
                 ) = process_pdf_greece(
+                    input_pdf_path,
+                    date.strftime("%d %b %Y")
+                )
+            elif country == "Paraguay":
+                (
+                    total_pdf_pages, pages, detected_ad_owners, kept, removed,
+                    auto_removed_pages, removed_page_details, ad_detection_details
+                ) = process_pdf_paraguay(
                     input_pdf_path,
                     date.strftime("%d %b %Y")
                 )
@@ -2590,27 +3061,36 @@ if st.session_state.processed:
             if key not in st.session_state:
                 st.session_state[key] = True
 
-    def card(title, value):
+    def card(title, value, icon="📄", tone="blue", sub="", pct=100):
         st.markdown(
             f"""
-            <div class="kpi-card">
-                <h4>{title}</h4>
-                <h2>{value}</h2>
+            <div class="kpi-card kpi-{tone}">
+                <div class="kpi-top">
+                    <span class="kpi-icon">{icon}</span>
+                    <span class="kpi-label">{title}</span>
+                </div>
+                <div class="kpi-value">{value}</div>
+                <div class="kpi-bar"><span style="width:{max(0, min(100, pct))}%"></span></div>
+                <div class="kpi-sub">{sub}</div>
             </div>
             """,
             unsafe_allow_html=True
         )
 
+    kept_pct = round((extracted_pages / total_pdf_pages) * 100) if total_pdf_pages else 0
+    removed_pct = 100 - kept_pct
+
+    sec_label(3, "Results overview")
+
     c1, c2, c3 = st.columns(3)
-
     with c1:
-        card("Pages", total_pdf_pages)
-
+        card("Total pages", total_pdf_pages, "📚", "blue", "Pages found in the source PDF", 100)
     with c2:
-        card("Extracted Pages", extracted_pages)
-
+        card("Extracted", extracted_pages, "✅", "green", f"{kept_pct}% of the document retained", kept_pct)
     with c3:
-        card("Removed Pages", removed_pages)
+        card("Removed", removed_pages, "🗑️", "amber", f"{removed_pct}% filtered out", removed_pct)
+
+    sec_label(4, "Section filters")
 
     selected_sections = []
     selected_enr_majors = set()
@@ -2739,57 +3219,170 @@ if st.session_state.processed:
     # =============================
     # PREVIEW FROM ORIGINAL PDF
     # =============================
-    with col_left:
-        st.subheader("Preview")
+    # ---------- preview grid helpers ----------
+    SECTION_COLORS = {
+        "GEN": ("#60A5FA", "#93C5FD"),
+        "ENR": ("#A78BFA", "#C4B5FD"),
+        "AD":  ("#34D399", "#6EE7B7"),
+    }
 
-        zoom = st.slider(
-            "Zoom",
-            min_value=0.5,
-            max_value=2.5,
-            value=1.0,
-            step=0.1
-        )
+    icao_by_page = {
+        item["page"]: item["icao"]
+        for item in st.session_state.get("ad_detection_details", [])
+        if item.get("icao")
+    }
+
+    meta_by_index = {
+        get_page_index(pt): (get_page_section(pt), get_page_major(pt))
+        for pt in selected_page_tuples
+        if get_page_index(pt) is not None
+    }
+
+    def page_label(page_index, section, major):
+        if section == "AD" and major == 2:
+            icao = icao_by_page.get(page_index + 1)
+            if icao:
+                return f"AD 2.{icao}"
+        if section and major is not None:
+            return f"{section} {major}"
+        return section or "Page"
+
+    with col_left:
+        st.markdown('<div class="sec-label">Preview</div>', unsafe_allow_html=True)
 
         total_preview_pages = len(selected_preview_indexes)
         limit = st.session_state.preview_limit
+        shown_indexes = selected_preview_indexes[:min(limit, total_preview_pages)]
 
-        st.caption(
-            f"Showing {min(limit, total_preview_pages)} of {total_preview_pages} selected page(s)"
+        # ----- toolbar -----
+        with st.container(border=True):
+            t1, t2, t3 = st.columns([1.1, 1.5, 1.4])
+
+            with t1:
+                try:
+                    view_mode = st.segmented_control(
+                        "View", ["Grid", "Single"],
+                        default="Grid", label_visibility="collapsed"
+                    ) or "Grid"
+                except Exception:
+                    view_mode = st.radio(
+                        "View", ["Grid", "Single"],
+                        horizontal=True, label_visibility="collapsed"
+                    )
+
+            with t2:
+                zoom = st.slider("Zoom", 0.5, 2.5, 1.0, 0.1, label_visibility="collapsed")
+
+            with t3:
+                present = sorted(
+                    {s for s, _ in meta_by_index.values() if s},
+                    key=lambda x: ["GEN", "ENR", "AD"].index(x) if x in ("GEN", "ENR", "AD") else 9
+                )
+                chips = "".join(
+                    f'<span class="chip" style="background:{SECTION_COLORS.get(s, ("#64748B", "#94A3B8"))[0]}26;'
+                    f'border:1px solid {SECTION_COLORS.get(s, ("#64748B", "#94A3B8"))[0]}6E;'
+                    f'color:{SECTION_COLORS.get(s, ("#64748B", "#94A3B8"))[0]};">'
+                    f'<i style="background:{SECTION_COLORS.get(s, ("#64748B", "#94A3B8"))[0]}"></i>{s}</span>'
+                    for s in present
+                )
+                st.markdown(
+                    f'<div class="chip-row">{chips}'
+                    f'<span class="count-chip"><b>{len(shown_indexes)}</b> '
+                    f'of {total_preview_pages} pages shown</span></div>',
+                    unsafe_allow_html=True
+                )
+
+        st.progress(
+            len(shown_indexes) / total_preview_pages if total_preview_pages else 0.0
         )
 
-        render_scale = 1.2 if total_preview_pages > 100 else 2.0
+        # ----- render -----
         file_mtime = get_file_mtime(st.session_state.input_pdf_path)
 
-        for page_index in selected_preview_indexes[:min(limit, total_preview_pages)]:
-            image_bytes = render_preview_page(
-                st.session_state.input_pdf_path,
-                page_index,
-                render_scale,
-                file_mtime
-            )
+        if view_mode == "Single":
+            render_scale = 1.2 if total_preview_pages > 100 else 2.0
 
-            st.image(
-                image_bytes,
-                width=int(700 * zoom)
-            )
+            for page_index in shown_indexes:
+                section, major = meta_by_index.get(page_index, (None, None))
+                c1c, c2c = SECTION_COLORS.get(section, ("#64748B", "#94A3B8"))
 
+                with st.container(border=True):
+                    st.markdown(
+                        f'<div class="pg-head" style="background:{c1c}22;'
+                        f'border-bottom:1px solid {c1c}55;">'
+                        f'<span class="pg-pill">{page_index + 1}</span>'
+                        f'<span class="pg-code" style="color:{c2c};">'
+                        f'{page_label(page_index, section, major)}</span></div>',
+                        unsafe_allow_html=True
+                    )
+                    st.image(
+                        render_preview_page(
+                            st.session_state.input_pdf_path,
+                            page_index, render_scale, file_mtime
+                        ),
+                        width=int(700 * zoom)
+                    )
+
+        else:
+            # zoom controls how many cards fit per row
+            if zoom <= 0.7:
+                cols_n = 5
+            elif zoom <= 1.3:
+                cols_n = 4
+            elif zoom <= 1.9:
+                cols_n = 3
+            else:
+                cols_n = 2
+
+            thumb_scale = 1.0 if total_preview_pages > 60 else 1.4
+
+            for row_start in range(0, len(shown_indexes), cols_n):
+                row_cols = st.columns(cols_n, gap="medium")
+                row_pages = shown_indexes[row_start:row_start + cols_n]
+
+                for slot, page_index in enumerate(row_pages):
+                    section, major = meta_by_index.get(page_index, (None, None))
+                    c1c, c2c = SECTION_COLORS.get(section, ("#64748B", "#94A3B8"))
+
+                    with row_cols[slot]:
+                        with st.container(border=True):
+                            st.markdown(
+                                f'<div class="pg-head" style="background:{c1c}22;'
+                                f'border-bottom:1px solid {c1c}55;">'
+                                f'<span class="pg-pill">{page_index + 1}</span>'
+                                f'<span class="pg-code" style="color:{c2c};">'
+                                f'{page_label(page_index, section, major)}</span></div>',
+                                unsafe_allow_html=True
+                            )
+                            st.image(
+                                render_preview_page(
+                                    st.session_state.input_pdf_path,
+                                    page_index, thumb_scale, file_mtime
+                                ),
+                                use_container_width=True
+                            )
+
+        # ----- load more -----
         if limit < total_preview_pages:
+            remaining = total_preview_pages - limit
             st.button(
-                "⬇ Load More Pages",
+                f"⬇ Load {min(10, remaining)} more pages",
                 key="load_more_pages_button",
-                on_click=load_more_preview_pages
+                on_click=load_more_preview_pages,
+                use_container_width=True
             )
+            st.caption(
+                f"{len(shown_indexes)} of {total_preview_pages} selected pages shown "
+                f"· {remaining} remaining"
+            )
+        else:
+            st.caption(f"All {total_preview_pages} selected pages shown")
 
     # =============================
     # SIDE PANEL
     # =============================
     with col_right:
-        st.markdown(
-            """
-            <div class="side-panel">
-            """,
-            unsafe_allow_html=True
-        )
+        st.markdown('<div class="sec-label">Output</div>', unsafe_allow_html=True)
 
         st.caption(
             f"Parser profile: {st.session_state.processed_country}"
@@ -2836,12 +3429,14 @@ if st.session_state.processed:
                         st.write(
                             f"Page {item['page']}: {item['icao']} | {item['raw']} | {item['parser']}"
                         )
-
+                if st.session_state.processed_country == "Paraguay":
+                    st.write("AD 2.N → ICAO map:",
+                             st.session_state.get("py_group_map", {}))
         st.caption(
             f"Selected for output: {len(selected_page_tuples)} page(s)"
         )
 
-        prepare_clicked = st.button("Prepare Download")
+        prepare_clicked = st.button("⚙️ Prepare download", use_container_width=True)
 
         if prepare_clicked:
             with st.spinner("Preparing trimmed PDF..."):
@@ -2866,10 +3461,11 @@ if st.session_state.processed:
 
             with open(output_pdf_path, "rb") as download_file:
                 st.download_button(
-                    label="Download PDF",
+                    label="⬇ Download trimmed PDF",
                     data=download_file,
                     file_name="trimmed_aip.pdf",
-                    mime="application/pdf"
+                    mime="application/pdf",
+                    use_container_width=True
                 )
         else:
             st.caption("Click Prepare Download after finalizing section filters.")
@@ -2923,10 +3519,5 @@ if st.session_state.processed:
         else:
             st.write("No removed pages found")
 
-        st.markdown(
-            """
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+        st.caption("AIP Trimmer · CAE Aviation Data Automation")
           

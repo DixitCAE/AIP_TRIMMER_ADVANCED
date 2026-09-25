@@ -1038,14 +1038,19 @@ def extract_section_detail_from_page(page, page_text, country):
         if generic_detail:
             return generic_detail
 
+    # PASS 1: look for an airport AD title across ALL title lines first.
+    # (France chart pages put "AIP FRANCE AD 2" on line 1 and the real id
+    # "AD-2.LFJR-1" on line 2. Checking generic per-line returned AD 2 with
+    # icao=None on line 1 and the page was deleted for having no owner.)
+    if not admin_page and not group_index_page:
+        for line in title_lines:
+            airport_detail = match_airport_ad_title_for_country(line, country)
+            if airport_detail:
+                return airport_detail
+
+    # PASS 2: only if no airport was found anywhere, fall back to generic.
     for line in title_lines:
-        airport_detail = match_airport_ad_title_for_country(line, country)
-
-        if airport_detail and not admin_page and not group_index_page:
-            return airport_detail
-
         generic_detail = match_generic_section_title(line)
-
         if generic_detail:
             return generic_detail
 

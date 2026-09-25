@@ -1275,6 +1275,7 @@ def process_pdf(input_pdf_path, selected_date, country):
     kept_ad_owners = set()
     removed_ad_owners = set()
     ad_detection_details = []
+    last_known_detail = None # for text-less chart pages
 
     for page_index in range(len(doc)):
         page = doc[page_index]
@@ -1289,7 +1290,23 @@ def process_pdf(input_pdf_path, selected_date, country):
         section_detail = extract_section_detail_from_page(page, text, country)
         section = section_detail["section"]
 
+        # Chart pages (SID / STAR / IAC / ARC / VAC) are often flattened images
+        # with NO text layer at all: no identity, no date. They were dropped as
+        # "Other / Unrecognized". Charts always follow their airport's text page
+        # (Ukraine: UKDD AD 2-14 -> its 2 charts, UKDE AD 2-8 -> its 10 charts),
+        # so inherit the previous page's identity instead of deleting them.
+        inherited = False
+        if not section and len(text.strip()) < 120 and last_known_detail:
+            section_detail = dict(last_known_detail)
+            section_detail["parser"] = "chart-inherited"
+            section = section_detail["section"]
+            inherited = True
+
         owner_icao = get_owner_icao_from_section_detail(section_detail)
+
+        if section:
+            last_known_detail = section_detail
+
 
         if section == "AD" and section_detail.get("major") == 2 and owner_icao:
             detected_ad_owners.add(owner_icao)
@@ -1329,7 +1346,16 @@ def process_pdf(input_pdf_path, selected_date, country):
             )
             continue
 
-        if not match_date_for_country(date_text, selected_date, country):
+        # Inherited chart pages carry no date of their own, and COCESNA/ASECNA
+        # AD 2 pages keep their OWN historical date rather than the amendment
+        # WEF date — both would be wrongly deleted by the date filter.
+        skip_date = inherited or (
+            country in GROUP_PROFILES
+            and section == "AD"
+            and section_detail.get("major") == 2
+        )
+
+        if not skip_date and not match_date_for_country(date_text, selected_date, country):
             removed_page_details.append(
                 {
                     "page": page_index + 1,

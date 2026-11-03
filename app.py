@@ -961,6 +961,16 @@ def match_ad_universal(line_text):
     Universal mode combines all known country/profile patterns.
     Use this only when country is unknown or user intentionally selects Universal.
     """
+    # Chart pages that put the word CHART between AD and 2, e.g.
+    #     RPVI AD CHART 2 - 5      (Philippines)
+    #     RPMC AD CHART 2 - 1
+    # Without this, the page fell through to the bare "AD" fallback with
+    # major=None, which skips the master-list filter, so every chart was kept.
+    t = compact_spaces(line_text)
+    chart_match = re.search(r"\b([A-Z]{4})\s+AD\s+CHART\s*2\b(?!\s*[\/~])", t)
+    if chart_match:
+        return make_ad_detail(chart_match, chart_match.group(0), "Universal-Chart")
+
     for matcher in [
         match_ad_bahamas,
         match_ad_asecna,

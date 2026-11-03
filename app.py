@@ -630,7 +630,11 @@ def is_administrative_list_page(text, country):
         "BULLETIN DE MISE A JOUR",
         "BULLETIN DE MISE À JOUR",
         "CHANGEMENTS DANS CET AMENDEMENT",
-        "CHANGES IN THIS AMENDMENT"
+        "CHANGES IN THIS AMENDMENT",
+        "CHANGEMENTS DANS CET AMENDEMENT",
+        "CHANGES IN THIS AMENDMENT",
+        "PAGE DATE PAGE DATE",      # GEN 0.4 checklist table header
+        "AIRAC AIP AMENDMENT"       # amendment cover letter, pages 1-5
     ]
 
     indonesia_markers = [

@@ -78,6 +78,24 @@ st.markdown(
         padding:9px 16px; border-radius:999px; letter-spacing:.5px;
         background:rgba(79,140,255,.14); border:1px solid rgba(79,140,255,.32);
     }
+    .hero-right {
+        margin-left:auto; display:flex; flex-direction:column;
+        align-items:flex-end; gap:10px;
+    }
+    .hero-right .hero-chip { margin-left:0; }
+    .logout-link {
+        display:inline-flex; align-items:center; gap:7px;
+        font-size:12px; font-weight:700; letter-spacing:.3px;
+        color:#C9D4EC !important; text-decoration:none !important;
+        padding:7px 14px; border-radius:999px;
+        background:rgba(255,255,255,.06);
+        border:1px solid rgba(255,255,255,.14);
+        transition:all .18s ease;
+    }
+    .logout-link:hover {
+        color:#fff !important; background:rgba(239,68,68,.16);
+        border-color:rgba(239,68,68,.55); transform:translateY(-1px);
+    }
 
     /* ---------- SECTION LABELS ---------- */
     .sec-label {
@@ -222,11 +240,11 @@ st.markdown(
 )
 
 # =============================
-# ACCESS GATE (CAE team only)
+# LOGIN (shared user ID + password)
 # =============================
-def check_password():
-    # Already logged in during this session, so skip the gate.
-    if st.session_state.get("auth_ok"):
+def check_login():
+    # Already logged in this session -> skip the login screen.
+    if st.session_state.get("logged_in"):
         return
 
     st.markdown(
@@ -246,19 +264,32 @@ def check_password():
 
     col = st.columns([1, 1.2, 1])[1]
     with col:
-        pwd = st.text_input("Access password", type="password",
-                            placeholder="Enter team password")
-        if st.button("🔓 Unlock", type="primary", use_container_width=True):
-            if pwd == st.secrets.get("app_password", ""):
-                st.session_state["auth_ok"] = True
+        # A form lets users press Enter to log in.
+        with st.form("login_form"):
+            user = st.text_input("User ID", placeholder="Enter user ID")
+            pwd = st.text_input("Password", type="password", placeholder="Enter password")
+            submitted = st.form_submit_button("🔓 Log in", type="primary",
+                                              use_container_width=True)
+
+        if submitted:
+            # User ID ignores capitals (fpmds123 works); password is exact.
+            if (user.strip().upper() == st.secrets["app_user"].upper()
+                    and pwd == st.secrets["app_password"]):
+                st.session_state["logged_in"] = True
                 st.rerun()
             else:
-                st.error("Incorrect password.")
+                st.error("Incorrect user ID or password.")
 
-    # Nothing below this line runs until the password is correct.
+    # Nothing below this line runs until login succeeds.
     st.stop()
+# Logout link in the hero box adds ?logout=1 to the URL.
+# Clear the session, remove the param, and show the login screen again.
+if st.query_params.get("logout") == "1":
+    st.session_state.clear()
+    st.query_params.clear()
+    st.rerun()
 
-check_password()
+check_login()
 
 # =============================
 # MASTER CSV
@@ -2581,7 +2612,19 @@ st.markdown(
             <h1>AIP Trimmer</h1>
             <p>Parse, filter and trim national AIP amendments down to only the pages that matter.</p>
         </div>
-        <div class="hero-chip">CAE · AVIATION DATA AUTOMATION</div>
+        <div class="hero-right">
+            <a class="logout-link" href="?logout=1" target="_self">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2.2"
+                     stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4"/>
+                    <path d="M10 12h10"/>
+                    <path d="M16 8l4 4-4 4"/>
+                </svg>
+                Log out
+            </a>
+            <div class="hero-chip">CAE · AVIATION DATA AUTOMATION</div>
+        </div>
     </div>
     """,
     unsafe_allow_html=True

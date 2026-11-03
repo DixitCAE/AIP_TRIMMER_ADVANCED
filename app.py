@@ -222,6 +222,45 @@ st.markdown(
 )
 
 # =============================
+# ACCESS GATE (CAE team only)
+# =============================
+def check_password():
+    # Already logged in during this session, so skip the gate.
+    if st.session_state.get("auth_ok"):
+        return
+
+    st.markdown(
+        """
+        <div style="max-width:420px;margin:10vh auto 18px auto;padding:30px;
+                    text-align:center;border-radius:20px;
+                    background:linear-gradient(135deg,rgba(79,140,255,.16),rgba(168,85,247,.10));
+                    border:1px solid rgba(255,255,255,.10);
+                    box-shadow:0 18px 50px rgba(0,0,0,.45);">
+            <div style="font-size:42px;">✈️</div>
+            <div style="font-size:24px;font-weight:800;color:#F4F7FF;margin-top:6px;">AIP Trimmer</div>
+            <div style="font-size:13px;color:#93A3C4;margin-top:4px;">Restricted access · CAE team only</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    col = st.columns([1, 1.2, 1])[1]
+    with col:
+        pwd = st.text_input("Access password", type="password",
+                            placeholder="Enter team password")
+        if st.button("🔓 Unlock", type="primary", use_container_width=True):
+            if pwd == st.secrets.get("app_password", ""):
+                st.session_state["auth_ok"] = True
+                st.rerun()
+            else:
+                st.error("Incorrect password.")
+
+    # Nothing below this line runs until the password is correct.
+    st.stop()
+
+check_password()
+
+# =============================
 # MASTER CSV
 # =============================
 MASTER_URL = "https://raw.githubusercontent.com/DixitCAE/PDF_PARSER/main/master_airport_list.csv"

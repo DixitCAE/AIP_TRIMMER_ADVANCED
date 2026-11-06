@@ -256,7 +256,7 @@ def check_login():
                     box-shadow:0 18px 50px rgba(0,0,0,.45);">
             <div style="font-size:42px;">✈️</div>
             <div style="font-size:24px;font-weight:800;color:#F4F7FF;margin-top:6px;">AIP Trimmer</div>
-            <div style="font-size:13px;color:#93A3C4;margin-top:4px;">Restricted access · CAE team only</div>
+            <div style="font-size:13px;color:#93A3C4;margin-top:4px;">Restricted access · Flightscape team only</div>
         </div>
         """,
         unsafe_allow_html=True,

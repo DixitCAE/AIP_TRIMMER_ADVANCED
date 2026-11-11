@@ -1747,7 +1747,7 @@ def _chile_section_detail(page_text):
         sub = int(m.group(1))
         if sub in (1, 2):
             owners = _chile_extract_icaos(page_text, sh_ok=(sub == 2))
-            return {"section": "AD", "major": 2, "raw": m.group(0), "icao": None,
+            return {"section": "AD", "major": 3, "raw": m.group(0), "icao": None,
                     "owner_icaos": owners, "parser": f"Chile-AD3.{sub}"}
         return {"section": "AD", "major": 3, "raw": m.group(0), "icao": None,
                 "owner_icaos": set(), "parser": "Chile-AD3.0"}
@@ -1759,7 +1759,30 @@ def _chile_section_detail(page_text):
     section, major = m.group(1), int(m.group(2))
     return {"section": section, "major": major, "raw": m.group(0), "icao": None,
             "owner_icaos": set(), "parser": "Chile-generic"}
+CHILE_ROW_ICAO_RE = re.compile(r"^(SC[A-Z]{2}|SH[A-Z]{2})$")
 
+CHILE_BLANK_MARKERS = (
+    "INTENTIONALLY LEFT BLANK",
+    "BLANCO INTENCIONALMENTE",
+    "INTENCIONALMENTE EN BLANCO",
+)
+
+
+def _chile_is_blank_page(text):
+    """'Dejada en blanco intencionalmente / Intentionally left blank' pages.
+    The length check stops a real page that merely mentions the phrase
+    from being dropped."""
+    t = compact_spaces(text)
+    return len(t) < 400 and any(m in t for m in CHILE_BLANK_MARKERS)
+
+
+def _chile_row_icaos(page):
+    """Aerodrome ICAOs from the left CIUDAD/AD column of an AD 3.1 / 3.2
+    table. Codes inside the OBS notes are ignored."""
+    return {
+        w[4] for w in page.get_text("words")
+        if w[0] < 160 and CHILE_ROW_ICAO_RE.match(w[4])
+    }
 
 def process_pdf_chile(input_pdf_path, selected_date):
     """Chile-only pipeline. Returns the SAME 8-tuple as process_pdf()."""
@@ -1773,11 +1796,23 @@ def process_pdf_chile(input_pdf_path, selected_date):
 
     for page_index in range(len(doc)):
         text = doc[page_index].get_text()
+
+        if _chile_is_blank_page(text):
+            removed_page_details.append(
+                {"page": page_index + 1, "category": "Intentionally blank"})
+            continue
+
         detail = _chile_section_detail(text)
         section = detail["section"]
         owners = set(detail.get("owner_icaos") or set())
 
-        if section == "AD" and detail.get("major") == 2 and owners:
+        # AD 3.1 / 3.2 tables: list only the aerodromes in the CIUDAD/AD
+        # column, not codes mentioned inside the OBS notes.
+        if detail.get("parser") in ("Chile-AD3.1", "Chile-AD3.2"):
+            owners = _chile_row_icaos(doc[page_index])
+
+
+        if section == "AD" and detail.get("major") in (2, 3) and owners:
             detected_ad_owners.update(owners)
             ad_detection_details.append(
                 {"page": page_index + 1, "icao": ", ".join(sorted(owners)),
@@ -1804,15 +1839,15 @@ def process_pdf_chile(input_pdf_path, selected_date):
         temp_pages.append((page_index, section, detail))
 
     final_pages = []
+
     for page_index, section, detail in temp_pages:
         major = detail.get("major")
         parser = detail.get("parser") or ""
 
-        # Master-list filter applies to EVERY AD 2 page — main airport pages
-        # (Chile-AD2) AND all subsections (Chile-AD2gen). AD 3.1 / AD 3.2
-        # are exempt and kept as-is.
         is_ad2_family = parser in ("Chile-AD2", "Chile-AD2gen")
+        is_ad3_table = parser in ("Chile-AD3.1", "Chile-AD3.2")
 
+        # AD 2: whole page kept/removed by its airport
         if section == "AD" and major == 2 and is_ad2_family:
             owners = set(detail.get("owner_icaos") or set())
             matched = {i for i in owners if i in allowed_icaos}
@@ -1825,9 +1860,24 @@ def process_pdf_chile(input_pdf_path, selected_date):
                     {"page": page_index + 1, "category": get_clean_removed_category(detail)})
                 continue
 
+        # AD 3.1 / 3.2: keep the WHOLE page if at least one aerodrome row
+        # is in the master list; otherwise remove the page.
+        if section == "AD" and is_ad3_table:
+            row_icaos = _chile_row_icaos(doc[page_index])
+            matched = row_icaos & allowed_icaos
+            if matched:
+                kept_ad_owners.update(matched)
+                removed_ad_owners.update(row_icaos - matched)
+            else:
+                removed_ad_owners.update(row_icaos)
+                removed_page_details.append(
+                    {"page": page_index + 1, "category": get_clean_removed_category(detail)})
+                continue
+
         final_pages.append((page_index, section, major))
 
     doc.close()
+
     return (total_pdf_pages, final_pages, detected_ad_owners, kept_ad_owners,
             removed_ad_owners, auto_removed_pages, removed_page_details,
             ad_detection_details)
@@ -3366,10 +3416,10 @@ if st.session_state.processed:
     }
 
     def page_label(page_index, section, major):
-        if section == "AD" and major == 2:
+        if section == "AD" and major in (2, 3):
             icao = icao_by_page.get(page_index + 1)
             if icao:
-                return f"AD 2.{icao}"
+                return f"AD {major}.{icao}"
         if section and major is not None:
             return f"{section} {major}"
         return section or "Page"

@@ -528,6 +528,24 @@ def match_date_for_country(text, selected_date, country):
 
     return match_date_standard(text, selected_date)
 
+MONTHS_RE = r"(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)"
+
+def stamped_page_date(text):
+    """
+    Egypt eAIP: unchanged pages keep the amendment date in their hidden
+    header, but are stamped with their REAL date, e.g.
+    '11 JUN 2026 AIRAC AMDT 02/26' or '01 SEP 2026 AMDT 02/26'.
+    Returns that stamped date, or None if the page has no stamp.
+    """
+    t = compact_spaces(text)
+    if "A.R.E" not in t:          # only Egypt pages use this layout
+        return None
+    stamps = re.findall(
+        rf"(\d{{1,2}}\s+{MONTHS_RE}\s+\d{{4}})\s+(?:AIRAC\s+)?AMDT\s+\d{{1,2}}/\d{{2}}",
+        t
+    )
+    return stamps[-1] if stamps else None
+
 # =============================
 # SPANISH DATE MATCHER (Argentina)
 # =============================
@@ -614,6 +632,7 @@ def is_administrative_list_page(text, country):
         "DESTROY INSERT",
         "INSERT/DESTROY",
         "PAGE TO BE DESTROYED",
+        "INSERT THE FOLLOWING PAGES",   # Egypt amendment cover: insert/remove table
         "PAGE TO BE INSERTED",
         "CHECKLIST OF AIP PAGES",
         "CHECKLIST MIA",
@@ -1045,6 +1064,12 @@ def match_ad_universal(line_text):
     if chart_match:
         return make_ad_detail(chart_match, chart_match.group(0), "Universal-Chart")
 
+    # Egypt eAIP page-ids: "AD 2.HEAL-1", "AD 2.HECA 2.24.13-5"
+    # (dot between AD 2 and the ICAO, then a page number or 2.24.x).
+    dot_match = re.search(r"\bAD\s*2\s*\.\s*([A-Z]{4})(?=\s*(?:-\s*\d|\d))", t)
+    if dot_match:
+        return make_ad_detail(dot_match, dot_match.group(0), "Universal-ADdot")
+    
     for matcher in [
         match_ad_bahamas,
         match_ad_asecna,
@@ -1121,7 +1146,24 @@ def extract_section_detail_from_page(page, page_text, country):
         generic_detail = match_generic_section_title(joined_title)
         if generic_detail:
             return generic_detail
-
+    # A page whose own running ID is GEN or ENR (e.g. "GEN 0.3-2 AIP A.R.E",
+    # "AIP A.R.E GEN 0.4 - 7") is never an airport page, even if its table
+    # rows list "HEAR AD 2" / "HETB AD 2 ...". Only lines containing "AIP"
+    # count, so rows inside a table aren't mistaken for the page ID.
+    for line in title_lines:
+        if "AIP" not in line:
+            continue
+        own_id = re.search(r"\b(GEN|ENR)\s*(\d+)\.\d+\s*-\s*\d+\b", line)
+        if own_id:
+            return {
+                "section": own_id.group(1),
+                "major": int(own_id.group(2)),
+                "raw": own_id.group(0),
+                "icao": None,
+                "is_airport_ad": False,
+                "parser": "own-page-id"
+            }
+    
     # PASS 1: look for an airport AD title across ALL title lines first.
     # (France chart pages put "AIP FRANCE AD 2" on line 1 and the real id
     # "AD-2.LFJR-1" on line 2. Checking generic per-line returned AD 2 with
@@ -1365,6 +1407,11 @@ def process_pdf(input_pdf_path, selected_date, country):
         page = doc[page_index]
         text = page.get_text()
 
+        if is_blank_page(text):
+            removed_page_details.append(
+                {"page": page_index + 1, "category": "Intentionally blank"})
+            continue
+
         # Some pages (e.g. Bahamas big table pages) mangle the running-header
         # date in plain get_text() reading order, so the contiguous date match
         # fails. The clean header/footer zone lines still carry it, so append
@@ -1439,7 +1486,13 @@ def process_pdf(input_pdf_path, selected_date, country):
             and section_detail.get("major") == 2
         )
 
-        if not skip_date and not match_date_for_country(date_text, selected_date, country):
+        # If the page carries a stamped date (Egypt unchanged pages),
+        # judge the page by that stamp only.
+        stamp = stamped_page_date(text)
+        date_ok = (match_date_standard(stamp, selected_date) if stamp
+                   else match_date_for_country(date_text, selected_date, country))
+
+        if not skip_date and not date_ok:
             removed_page_details.append(
                 {
                     "page": page_index + 1,
@@ -1761,19 +1814,23 @@ def _chile_section_detail(page_text):
             "owner_icaos": set(), "parser": "Chile-generic"}
 CHILE_ROW_ICAO_RE = re.compile(r"^(SC[A-Z]{2}|SH[A-Z]{2})$")
 
-CHILE_BLANK_MARKERS = (
-    "INTENTIONALLY LEFT BLANK",
+BLANK_PAGE_MARKERS = (
+    "INTENTIONALLY LEFT BLANK",      # also matches "PAGE INTENTIONALLY LEFT BLANK"
     "BLANCO INTENCIONALMENTE",
     "INTENCIONALMENTE EN BLANCO",
 )
 
 
-def _chile_is_blank_page(text):
-    """'Dejada en blanco intencionalmente / Intentionally left blank' pages.
+def is_blank_page(text):
+    """'Intentionally left blank' pages, in English or Spanish.
     The length check stops a real page that merely mentions the phrase
     from being dropped."""
     t = compact_spaces(text)
-    return len(t) < 400 and any(m in t for m in CHILE_BLANK_MARKERS)
+    return len(t) < 400 and any(m in t for m in BLANK_PAGE_MARKERS)
+
+
+# Chile code still calls the old name
+_chile_is_blank_page = is_blank_page
 
 
 def _chile_row_icaos(page):
